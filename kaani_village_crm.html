@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaani Village · CRM</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;background:#FAFAF7;color:#2C2C2A;line-height:1.5;padding:20px;max-width:1200px;margin:0 auto}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;padding-bottom:14px;border-bottom:1px solid #E8E6E0}
+.logo{font-size:18px;font-weight:500}.logo em{color:#1D9E75;font-style:normal}
+.subtitle{font-size:12px;color:#5F5E5A;margin-top:2px}
+.nav{display:flex;gap:4px;flex-wrap:wrap}
+.nb{padding:7px 14px;font-size:13px;border-radius:8px;border:1px solid #E8E6E0;background:#fff;color:#5F5E5A;cursor:pointer;font-family:inherit;white-space:nowrap}
+.nb:hover{border-color:#B4B2A9}
+.nb.on{background:#1D9E75;color:#fff;border-color:#1D9E75;font-weight:500}
+.pane{display:none}.pane.on{display:block}
+
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px}
+.sm{background:#fff;border:1px solid #E8E6E0;border-radius:10px;padding:12px 14px}
+.sl{font-size:11px;color:#5F5E5A;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;font-weight:500}
+.sv{font-size:22px;font-weight:500;color:#2C2C2A;line-height:1}
+.ss{font-size:11px;color:#5F5E5A;margin-top:4px}
+
+.card{background:#fff;border:1px solid #E8E6E0;border-radius:12px;padding:16px 18px;margin-bottom:12px}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.ct{font-size:14px;font-weight:500;color:#2C2C2A}
+.cd{font-size:13px;color:#5F5E5A;line-height:1.6;margin-bottom:12px}
+.cs{font-size:11px;color:#5F5E5A;font-weight:400}
+
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:12px}
+
+.badge{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:500;white-space:nowrap;display:inline-block}
+.bu{background:#FCEBEB;color:#A32D2D}.bh{background:#FAEEDA;color:#633806}
+.bm{background:#E6F1FB;color:#185FA5}.be{background:#E1F5EE;color:#0F6E56}
+.bl{background:#EEEDFE;color:#3C3489}.bg{background:#F1EFE8;color:#5F5E5A}
+
+.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #E8E6E0;font-size:13px}
+.row:last-child{border-bottom:none}
+.rn{flex:1;min-width:0;font-weight:500;color:#2C2C2A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd{color:#5F5E5A;font-size:11px;white-space:nowrap}
+.av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+
+.btn{padding:8px 14px;font-size:13px;border-radius:8px;border:1px solid #B4B2A9;background:#fff;cursor:pointer;color:#2C2C2A;font-family:inherit}
+.btn:hover{background:#F1EFE8}
+.btnp{background:#1D9E75;color:#fff;border-color:#1D9E75;font-weight:500}
+.btnp:hover{background:#0F6E56}
+.btn.done{background:#E1F5EE;color:#0F6E56;border-color:#5DCAA5}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+.tpl{background:#FAFAF7;border:1px solid #E8E6E0;border-radius:8px;padding:12px 14px;font-size:13px;color:#444441;line-height:1.7;margin:12px 0;white-space:pre-wrap;font-family:inherit}
+
+.divider{height:1px;background:#E8E6E0;margin:14px 0}
+.sec{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5F5E5A;font-weight:500;margin-bottom:10px}
+
+.br{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12px}
+.bl2{width:100px;color:#5F5E5A;text-align:right;flex-shrink:0;font-size:12px}
+.bt{flex:1;background:#F1EFE8;border-radius:4px;height:22px;overflow:hidden}
+.bf{height:100%;border-radius:4px;display:flex;align-items:center;padding-left:8px;font-size:11px;font-weight:500}
+
+.ck{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-size:13px;color:#2C2C2A}
+.ck input{margin-top:3px;accent-color:#1D9E75;flex-shrink:0;width:15px;height:15px;cursor:pointer}
+.ck label{cursor:pointer;line-height:1.5;flex:1}
+.ck input:checked + label{color:#888780;text-decoration:line-through}
+
+.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;background:#E1F5EE;color:#0F6E56;margin:2px}
+
+.gcard{background:#fff;border:1px solid #E8E6E0;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s}
+.gcard:hover{border-color:#B4B2A9}
+.gcard.sel{border-color:#1D9E75;border-width:2px;padding:11px 13px}
+
+.toolbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.toolbar input,.toolbar select{padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid #E8E6E0;background:#fff;color:#2C2C2A;font-family:inherit}
+.toolbar input{flex:1;min-width:160px}
+.toolbar input:focus,.toolbar select:focus{outline:none;border-color:#1D9E75}
+
+.panel-wrap{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;justify-content:flex-end;z-index:300}
+.panel{width:400px;max-width:100%;background:#fff;height:100%;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.1)}
+.pc{float:right;background:none;border:none;font-size:18px;cursor:pointer;color:#5F5E5A;padding:0}
+.pav{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:500;margin-bottom:10px}
+.pn{font-size:17px;font-weight:500;color:#2C2C2A;margin-bottom:2px}
+.ps{font-size:13px;color:#5F5E5A;margin-bottom:14px}
+.dr{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #E8E6E0;font-size:13px}
+.dr:last-child{border-bottom:none}
+.dk{color:#5F5E5A}.dv{color:#2C2C2A;font-weight:500;text-align:right;max-width:55%;word-break:break-word}
+.dv.dob{color:#0F6E56}
+
+.izone{border:2px dashed #B4B2A9;border-radius:12px;padding:32px;text-align:center;color:#5F5E5A;font-size:14px;background:#fff}
+.izone label{cursor:pointer;color:#1D9E75;font-weight:500;text-decoration:underline}
+
+.cw{position:relative;width:100%;height:230px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:12px;color:#5F5E5A}
+.legend span{display:flex;align-items:center;gap:6px}
+.ld{width:11px;height:11px;border-radius:2px;flex-shrink:0}
+
+.kpi{padding:14px 16px;border-radius:10px;background:#fff;border:1px solid #E8E6E0}
+.kpi-bar{height:5px;background:#F1EFE8;border-radius:3px;overflow:hidden;margin-top:10px}
+.kpi-fill{height:100%;border-radius:3px}
+
+.cal-month{margin-bottom:18px}
+.cal-mh{font-size:14px;font-weight:500;color:#2C2C2A;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #E8E6E0;display:flex;align-items:center;justify-content:space-between}
+.cal-task{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #E8E6E0;align-items:flex-start}
+.cal-task:last-child{border-bottom:none}
+.cal-week{font-size:11px;color:#5F5E5A;width:80px;flex-shrink:0;padding-top:2px;font-weight:500}
+.cal-body{flex:1}
+.cal-title{font-size:13px;font-weight:500;color:#2C2C2A}
+.cal-detail{font-size:12px;color:#5F5E5A;margin-top:3px;line-height:1.6}
+
+.tag-pill{display:inline-block;font-size:11px;padding:3px 9px;border-radius:20px;background:#E1F5EE;color:#0F6E56;margin:3px 4px 3px 0}
+.tag-pill .x{cursor:pointer;opacity:0.6;margin-left:4px}
+
+.empty{text-align:center;padding:32px;color:#5F5E5A;font-size:13px}
+
+.insight-item{padding:10px 0;border-bottom:1px solid #E8E6E0;font-size:13px;color:#5F5E5A;line-height:1.7}
+.insight-item:last-child{border-bottom:none}
+.insight-item strong{color:#2C2C2A;font-weight:500}
+
+@media (max-width:600px){
+  body{padding:14px}
+  .nb{padding:6px 11px;font-size:12px}
+  .panel{width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <div class="logo">Kaani <em>Village</em> · CRM</div>
+    <div class="subtitle">39 guests · 19–28 April 2026</div>
+  </div>
+  <div class="nav">
+    <button class="nb on" onclick="sw('overview',this)">Overview</button>
+    <button class="nb" onclick="sw('dashboard',this)">Dashboard</button>
+    <button class="nb" onclick="sw('guests',this)">Guests</button>
+    <button class="nb" onclick="sw('actions',this)">Actions</button>
+    <button class="nb" onclick="sw('marketing',this)">Marketing</button>
+    <button class="nb" onclick="sw('plan',this)">Plan</button>
+    <button class="nb" onclick="sw('import',this)">Import</button>
+  </div>
+</div>
+
+<!-- OVERVIEW -->
+<div id="pane-overview" class="pane on">
+  <div class="sg" id="ov-stats"></div>
+  <div class="g2">
+    <div class="card"><div class="ct" style="margin-bottom:12px">Today's urgent actions</div><div id="ov-alerts"></div></div>
+    <div class="card"><div class="ct" style="margin-bottom:12px">Upcoming birthdays</div><div id="ov-bdays"></div></div>
+  </div>
+  <div class="card"><div class="ct" style="margin-bottom:12px">Current in-house guests</div><div id="ov-inhouse"></div></div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="pane-dashboard" class="pane">
+  <div class="sg">
+    <div class="kpi"><div class="sl">Unique guests</div><div class="sv">39</div><div class="ss">19–28 Apr</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:#1D9E75"></div></div></div>
+    <div class="kpi"><div class="sl">Email capture</div><div class="sv">79%</div><div class="ss">31 of 39 guests</div><div class="kpi-bar"><div class="kpi-fill" style="width:79%;background:#378ADD"></div></div></div>
+    <div class="kpi"><div class="sl">Direct bookings</div><div class="sv">10%</div><div class="ss">4 of 39 guests</div><div class="kpi-bar"><div class="kpi-fill" style="width:10%;background:#EF9F27"></div></div></div>
+    <div class="kpi"><div class="sl">DOB on file</div><div class="sv">97%</div><div class="ss">38 of 39 guests</div><div class="kpi-bar"><div class="kpi-fill" style="width:97%;background:#1D9E75"></div></div></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="ch"><div class="ct">Booking source</div><div class="cs">% of all guests</div></div>
+      <div class="cw"><canvas id="srcChart"></canvas></div>
+      <div class="legend">
+        <span><span class="ld" style="background:#1D9E75"></span>Destinos 54%</span>
+        <span><span class="ld" style="background:#378ADD"></span>Booking.com 21%</span>
+        <span><span class="ld" style="background:#EF9F27"></span>Agoda 13%</span>
+        <span><span class="ld" style="background:#5DCAA5"></span>Direct 10%</span>
+        <span><span class="ld" style="background:#D85A30"></span>MakeMyTrip 3%</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ct">Top nationalities</div><div class="cs">guest count</div></div>
+      <div class="cw"><canvas id="natChart"></canvas></div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="ch"><div class="ct">Stay length distribution</div><div class="cs">guests by nights</div></div>
+      <div class="cw"><canvas id="nightsChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ct">Tourist vs Local</div><div class="cs">guest type</div></div>
+      <div class="cw"><canvas id="typeChart"></canvas></div>
+      <div class="legend">
+        <span><span class="ld" style="background:#1D9E75"></span>Tourist 31 (79%)</span>
+        <span><span class="ld" style="background:#AFA9EC"></span>Local 8 (21%)</span>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ch"><div class="ct">Daily arrivals</div><div class="cs">19–28 Apr 2026</div></div>
+    <div class="cw" style="height:200px"><canvas id="arrChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="ct" style="margin-bottom:12px">Key insights for action</div>
+    <div class="insight-item"><strong>Source concentration risk.</strong> 54% came through Destinos Entre Azules. Diversifying source channels should be a Q3 focus.</div>
+    <div class="insight-item"><strong>Spanish market dominance.</strong> 59% of guests are Spanish. Spanish-language content and a Spanish welcome touch are easy wins.</div>
+    <div class="insight-item"><strong>Long-stay loyalty opportunity.</strong> 46% of guests stayed 7 nights — your most engaged guests, perfect for win-back campaigns.</div>
+    <div class="insight-item"><strong>Email gap.</strong> 8 Maldivian locals have no email. Capturing these is an easy 21-percentage-point lift.</div>
+    <div class="insight-item"><strong>Direct booking upside.</strong> Only 10% booked direct vs 25–30% benchmark. Win-back campaign directly targets this gap.</div>
+  </div>
+</div>
+
+<!-- GUESTS -->
+<div id="pane-guests" class="pane">
+  <div class="sg" id="g-stats"></div>
+  <div class="toolbar">
+    <input type="text" id="gsearch" placeholder="Search name, email, nationality..." oninput="renderGuests()"/>
+    <select id="gfst" onchange="renderGuests()"><option value="">All statuses</option><option>Stayover</option><option>Checked IN</option><option>Checked Out</option></select>
+    <select id="gfsrc" onchange="renderGuests()"><option value="">All sources</option></select>
+    <select id="gfnat" onchange="renderGuests()"><option value="">All nationalities</option></select>
+    <select id="gftype" onchange="renderGuests()"><option value="">All types</option><option value="1. Tourist">Tourist</option><option value="2. Local">Local</option></select>
+  </div>
+  <div id="glist"></div>
+</div>
+
+<!-- ACTIONS -->
+<div id="pane-actions" class="pane">
+  <div class="nav" style="margin-bottom:14px" id="action-nav">
+    <button class="nb on" onclick="swa('review',this)">Review request</button>
+    <button class="nb" onclick="swa('winback',this)">Win-back</button>
+    <button class="nb" onclick="swa('upsell',this)">Upsell</button>
+    <button class="nb" onclick="swa('bday',this)">Birthdays</button>
+    <button class="nb" onclick="swa('seasonal',this)">Seasonal blast</button>
+    <button class="nb" onclick="swa('checklist',this)">Checklist</button>
+  </div>
+  <div id="action-content"></div>
+</div>
+
+<!-- MARKETING -->
+<div id="pane-marketing" class="pane">
+  <div class="sg" id="mkt-stats"></div>
+  <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn btnp" id="cpaBtn" onclick="cpAll(this)">Copy all emails</button>
+    <span style="font-size:12px;color:#5F5E5A" id="mkt-count"></span>
+  </div>
+  <div id="mkt-groups"></div>
+</div>
+
+<!-- PLAN -->
+<div id="pane-plan" class="pane">
+  <div class="card">
+    <div class="ch"><div class="ct">6-month CRM action plan</div><span class="badge be">Apr – Sep 2026</span></div>
+    <div class="cd">Your week-by-week tasks to increase direct bookings and repeat guests. Consistent execution will move direct bookings from 10% to 18–20% within 6 months.</div>
+    <div class="sg">
+      <div class="sm"><div class="sl">Direct target</div><div class="sv">20%</div><div class="ss">from 10%</div></div>
+      <div class="sm"><div class="sl">Email capture</div><div class="sv">95%</div><div class="ss">from 79%</div></div>
+      <div class="sm"><div class="sl">Repeat rate</div><div class="sv">15%</div><div class="ss">from ~5%</div></div>
+      <div class="sm"><div class="sl">Reviews</div><div class="sv">2x</div><div class="ss">Google count</div></div>
+    </div>
+  </div>
+  <div id="plan-content"></div>
+</div>
+
+<!-- IMPORT -->
+<div id="pane-import" class="pane">
+  <div class="card" style="max-width:520px">
+    <div class="ct" style="margin-bottom:8px">Import from Ezee</div>
+    <div class="cd">Upload any daily guest list CSV. Guests are matched by Identity (passport / national ID) — no duplicates ever created. Currently <strong style="color:#2C2C2A" id="ic">39 guests loaded</strong></div>
+    <div class="izone"><div style="font-size:24px;margin-bottom:8px">+</div>Drop CSV or <label>browse to upload<input type="file" accept=".csv" style="display:none" onchange="doImport(event)"></label></div>
+    <div id="imsg" style="margin-top:10px;font-size:13px;color:#0F6E56"></div>
+    <div class="divider"></div>
+    <div style="font-size:13px;color:#5F5E5A;line-height:1.6"><strong style="color:#2C2C2A">Note:</strong> DOB is auto-extracted from the Address field. Existing guests are updated, never duplicated.</div>
+  </div>
+</div>
+
+<div id="sp" style="display:none"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const TODAY = new Date(2026,3,28);
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const RAW = [
+  {n:"Ms. GIVANNA DESIRÉE PÉREZ FARIÑA",e:"freedivergpf@gmail.com",dob:"22-11-1993",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-103",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAZ066267",type:"1. Tourist"},
+  {n:"Ms. MARIA ELENA GARCIA GREGORIO",e:"piccolina98@gmail.com",dob:"17-03-1975",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-102",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAK298362",type:"1. Tourist"},
+  {n:"Ms. NEREA LUEZAS PRADALES",e:"nereku13@hotmail.com",dob:"26-07-1972",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-105",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAZ112828",type:"1. Tourist"},
+  {n:"Ms. Maria Angeles Gil ureña",e:"angilu.lines@gmail.com",dob:"27-01-1960",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-104",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAU225652",type:"1. Tourist"},
+  {n:"Ms. LARA RODRÍGUEZ HERNÁNDEZ",e:"direccion@expofuturo.es",dob:"30-11-1999",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-106",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAY502105",type:"1. Tourist"},
+  {n:"Ms. ELISA ANA GIMENEZ RODRIGUEZ",e:"eliangimenez@hotmail.com",dob:"26-10-1988",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-107",nat:"Spain",pax:"1(A)/0(C)",id:"Passport-PAL724270",type:"1. Tourist"},
+  {n:"Mr. NEMESIO Enatarriaga",e:"oscarenata2@gmail.com",dob:"09-12-1965",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-203",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAD937650",type:"1. Tourist"},
+  {n:"Ms. Lola Sújar Maeso",e:"lolasujar@gmail.com",dob:"16-08-1990",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-202",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAN345177",type:"1. Tourist"},
+  {n:"Ms. Grace West Cathryn",e:"GRACEWEST@GMAIL.COM",dob:"01-02-2005",st:"Checked Out",src:"Booking.com",arr:"14-04-2026",dep:"20-04-2026",nights:6,room:"DDP-207",nat:"United Kingdom",pax:"2(A)/0(C)",id:"Passport-151507080",type:"1. Tourist"},
+  {n:"Mr. Ailen Pestana Hernández",e:"info@destinosentreazules.com",dob:"09-06-2006",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"18-04-2026",dep:"25-04-2026",nights:7,room:"DDP-201",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAU292002",type:"1. Tourist"},
+  {n:"Ms. MARIA ARACELI GÁMIZ MORAL",e:"leliih.lemonhead@gmail.com",dob:"02-10-1998",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"19-04-2026",dep:"25-04-2026",nights:6,room:"DDP-204",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAN064422",type:"1. Tourist"},
+  {n:"Mr. CARDEBOSA ALABAU",e:"info@destinosentreazules.com",dob:"19-12-1991",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"21-04-2026",dep:"25-04-2026",nights:4,room:"DDP-101",nat:"Spain",pax:"1(A)/0(C)",id:"Passport-PAQ389968",type:"1. Tourist"},
+  {n:"Mr. Sanchez Andres",e:"andressn94@gmail.com",dob:"02-06-1994",st:"Checked Out",src:"Agoda",arr:"21-04-2026",dep:"23-04-2026",nights:2,room:"DDP-206",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAP543563",type:"1. Tourist"},
+  {n:"Mr. adel khomri",e:null,dob:"19-04-1973",st:"Checked Out",src:"Booking.com",arr:"23-04-2026",dep:"25-04-2026",nights:2,room:"DFR-109",nat:"France",pax:"4(A)/0(C)",id:"Passport-18HA47765",type:"1. Tourist"},
+  {n:"Mr. DAVID RODRIGUEZ CAMARERO",e:"dare.211981@gmail.com",dob:"21-01-1981",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-107",nat:"Spain",pax:"1(A)/0(C)",id:"Passport-PAX074343",type:"1. Tourist"},
+  {n:"Mr. Albert Paré Colobrans",e:"alpaco99@gmail.com",dob:"18-04-1999",st:"Stayover",src:"DIRECT BOOKING",arr:"26-04-2026",dep:"02-05-2026",nights:6,room:"DDP-104",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAY488375",type:"1. Tourist"},
+  {n:"Mr. Matus Matus",e:"matosmatos147@gmail.com",dob:"30-11-1987",st:"Stayover",src:"Booking.com",arr:"25-04-2026",dep:"28-04-2026",nights:3,room:"DDP-205",nat:"Slovakia",pax:"2(A)/0(C)",id:"Passport-BJ5233724",type:"1. Tourist"},
+  {n:"Ms. Ariadna Abulí Riba",e:"info@destinosentreazules.com",dob:"05-07-1999",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"26-04-2026",dep:"02-05-2026",nights:6,room:"DDP-207",nat:"Spain",pax:"1(A)/0(C)",id:"Passport-PA0613303",type:"1. Tourist"},
+  {n:"Mr. Akbar Kazi",e:"AKBARKAZI25@GMAIL.COM",dob:"06-06-1992",st:"Stayover",src:"Booking.com",arr:"26-04-2026",dep:"28-04-2026",nights:2,room:"DDP-OB02",nat:"India",pax:"2(A)/0(C)",id:"Passport-U1084739",type:"1. Tourist"},
+  {n:"Mr. DHANANJAY PATIL",e:"dhananjaypatil041@gmail.com",dob:"04-01-2000",st:"Stayover",src:"MAKE MY TRIP (INDIA) PVT.LTD. (HOLIDAYS)",arr:"25-04-2026",dep:"28-04-2026",nights:3,room:"DDP-206",nat:"India",pax:"2(A)/0(C)",id:"Passport-C0930996",type:"1. Tourist"},
+  {n:"Ms. Alba Moreno González",e:"albavaldo96@gmail.com",dob:"01-05-1996",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-102",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAY766983",type:"1. Tourist"},
+  {n:"Ms. SHAN WANG",e:"1228908567@QQ.COM",dob:"06-04-1995",st:"Stayover",src:"Agoda",arr:"25-04-2026",dep:"28-04-2026",nights:3,room:"DDP-204",nat:"China",pax:"2(A)/0(C)",id:"Passport-EB7115637",type:"1. Tourist"},
+  {n:"Ms. ANA PERAL CLEMENT",e:"anaperal23@gmail.com",dob:"23-05-1992",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-105",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAQ653481",type:"1. Tourist"},
+  {n:"Ms. NÚRIA ARCO HUGUET",e:"nuria.arcohuguet@gmail.com",dob:"17-11-1988",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-101",nat:"Spain",pax:"1(A)/0(C)",id:"Passport-PAN970707",type:"1. Tourist"},
+  {n:"Mr. DANIEL HERNANDEZ CABALLERO",e:"danielhcavila@gmail.com",dob:"11-05-1995",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-106",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAT135288",type:"1. Tourist"},
+  {n:"Ms. MARTA MARMANEU MANRIQUE",e:"marttam88@gmail.com",dob:"08-10-1988",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-203",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAJ727475",type:"1. Tourist"},
+  {n:"Mr. FRANCISCO CHAVERNAS HERREROS",e:"fran_chavernas@proton.me",dob:"20-09-1993",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-201",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAQ085276",type:"1. Tourist"},
+  {n:"Mr. ANA CARMEN PÉREZ RUIZ",e:"cacacarmen_rococo@hotmail.com",dob:"07-01-1985",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-202",nat:"Spain",pax:"1(A)/0(C)",id:"Passport-PAU104590",type:"1. Tourist"},
+  {n:"Ms. MARÍA GARCÍA DEL DEDO",e:"mariapisovalle@gmail.com",dob:"23-08-2000",st:"Stayover",src:"DESTINOS ENTRE AZULES S.L",arr:"25-04-2026",dep:"02-05-2026",nights:7,room:"DDP-103",nat:"Spain",pax:"2(A)/0(C)",id:"Passport-PAN702907",type:"1. Tourist"},
+  {n:"Ms. Aminath Rishmy Ali",e:null,dob:"29-07-1995",st:"Checked IN",src:"Agoda",arr:"23-04-2026",dep:"24-04-2026",nights:1,room:"DFR-108",nat:"Maldives",pax:"3(A)/1(C)",id:"National ID-a274926",type:"2. Local"},
+  {n:"Ms. Yvonne Kawecki",e:"vonny224@gmail.com",dob:"22-04-1999",st:"Checked IN",src:"Booking.com",arr:"27-04-2026",dep:"28-04-2026",nights:1,room:"DFR-109",nat:"Australia",pax:"1(A)/0(C)",id:"Passport-PA7792800",type:"1. Tourist"},
+  {n:"Mrs. Reeza Ali",e:null,dob:"23-09-1982",st:"Checked IN",src:"DIRECT BOOKING",arr:"24-04-2026",dep:"25-04-2026",nights:1,room:"DFR-208",nat:"Maldives",pax:"2(A)/1(C)",id:"National ID-A014389",type:"2. Local"},
+  {n:"Mr. AHMED MURUTHALO",e:null,dob:"29-04-1996",st:"Checked IN",src:"DIRECT BOOKING",arr:"24-04-2026",dep:"25-04-2026",nights:1,room:"DDP-206",nat:"Maldives",pax:"2(A)/0(C)",id:"National ID-A237026",type:"2. Local"},
+  {n:"Mr. IMRAN RASHEED",e:null,dob:"09-09-1983",st:"Checked IN",src:"DIRECT BOOKING",arr:"24-04-2026",dep:"25-04-2026",nights:1,room:"DDP-205",nat:"Maldives",pax:"2(A)/0(C)",id:"National ID-A053321",type:"2. Local"},
+  {n:"Mr. Abdullah Ajghar",e:"shuroraj000@gmail.com",dob:"10-10-1994",st:"Checked IN",src:"Agoda",arr:"26-04-2026",dep:"27-04-2026",nights:1,room:"DDP-OB01",nat:"Bangladesh",pax:"2(A)/0(C)",id:"Passport-A05861508",type:"1. Tourist"},
+  {n:"Mr. HUSSAIN SIDHAN SAMIR",e:null,dob:"06-11-2009",st:"Checked IN",src:"Booking.com",arr:"23-04-2026",dep:"24-04-2026",nights:1,room:"DDP-206",nat:"Maldives",pax:"1(A)/1(C)",id:"National ID-A381778",type:"2. Local"},
+  {n:"Ms. nasreem nazyma",e:"NAZYMANASREEM@GMAIL.COM",dob:"24-05-1989",st:"Checked IN",src:"Booking.com",arr:"23-04-2026",dep:"24-04-2026",nights:1,room:"DDP-205",nat:"Maldives",pax:"1(A)/1(C)",id:"National ID-A134613",type:"2. Local"},
+  {n:"Ms. LIVIA ALI SHAHEEM",e:null,dob:"07-01-2008",st:"Checked IN",src:"Booking.com",arr:"23-04-2026",dep:"24-04-2026",nights:1,room:"DDP-207",nat:"Maldives",pax:"2(A)/1(C)",id:"National ID-A450363",type:"2. Local"},
+  {n:"Ms. Esha Ahmed",e:null,dob:null,st:"Checked Out",src:"Agoda",arr:"18-04-2026",dep:"19-04-2026",nights:1,room:"DDP-205",nat:"Maldives",pax:"2(A)/0(C)",id:"National ID-A319462",type:"2. Local"}
+];
+
+let guests = [...RAW];
+const tags = {}, notes = {};
+let selId = null;
+let chartsRendered = false;
+
+const AVCOLS = ['#E1F5EE/#0F6E56','#E6F1FB/#185FA5','#FAEEDA/#633806','#FBEAF0/#72243E','#EAF3DE/#27500A','#EEEDFE/#3C3489'];
+function avc(n){let h=0;for(const c of n)h=(h*31+c.charCodeAt(0))%AVCOLS.length;return AVCOLS[h].split('/');}
+function ini(n){const p=n.replace(/^(Mr\.|Ms\.|Mrs\.|Dr\.)\s+/i,'').trim().split(/\s+/);return(p[0][0]+(p[p.length-1]?.[0]||'')).toUpperCase();}
+function fn(n){return n.replace(/^(Mr\.|Ms\.|Mrs\.|Dr\.)\s+/i,'').trim().split(/\s+/)[0];}
+function ss(s){if(!s)return'—';if(s.includes('DESTINOS'))return'Destinos';if(s.includes('MAKE MY TRIP'))return'MakeMyTrip';if(s==='DIRECT BOOKING')return'Direct';return s;}
+function parseDOB(s){if(!s)return null;const p=s.split('-');return p.length===3?new Date(+p[2],+p[1]-1,+p[0]):null;}
+function calcAge(d){if(!d)return null;let a=TODAY.getFullYear()-d.getFullYear();if(TODAY<new Date(TODAY.getFullYear(),d.getMonth(),d.getDate()))a--;return a;}
+function fmtDOB(d){if(!d)return null;return String(d.getDate()).padStart(2,'0')+' '+MONTHS[d.getMonth()]+' '+d.getFullYear();}
+function bdayDays(dob){const d=parseDOB(dob);if(!d)return null;let n=new Date(TODAY.getFullYear(),d.getMonth(),d.getDate());if(n<TODAY)n=new Date(TODAY.getFullYear()+1,d.getMonth(),d.getDate());return Math.round((n-TODAY)/864e5);}
+function parseDate(s){if(!s)return null;const p=s.split('-');return p.length===3?new Date(+p[2],+p[1]-1,+p[0]):null;}
+function daysDiff(d){return d?Math.round((d-TODAY)/864e5):null;}
+function stBadge(s){return s==='Stayover'?'bm':s==='Checked IN'?'be':'bg';}
+
+/* OVERVIEW */
+function renderOverview(){
+  const total=guests.length,stay=guests.filter(g=>g.st==='Stayover').length,
+    ci=guests.filter(g=>g.st==='Checked IN').length,
+    emails=guests.filter(g=>g.e).length,
+    direct=guests.filter(g=>g.src==='DIRECT BOOKING').length,
+    nats=[...new Set(guests.map(g=>g.nat))].length;
+  document.getElementById('ov-stats').innerHTML=`
+    <div class="sm"><div class="sl">Total guests</div><div class="sv">${total}</div></div>
+    <div class="sm"><div class="sl">In-house</div><div class="sv">${stay+ci}</div><div class="ss">${stay} stay · ${ci} CI</div></div>
+    <div class="sm"><div class="sl">Emails</div><div class="sv">${emails}</div><div class="ss">${Math.round(emails/total*100)}% capture</div></div>
+    <div class="sm"><div class="sl">Direct</div><div class="sv">${direct}</div></div>
+    <div class="sm"><div class="sl">Nationalities</div><div class="sv">${nats}</div></div>
+    <div class="sm"><div class="sl">Avg nights</div><div class="sv">${(guests.reduce((a,g)=>a+g.nights,0)/total).toFixed(1)}</div></div>`;
+
+  const co=guests.filter(g=>{const d=daysDiff(parseDate(g.dep));return d!==null&&d>=-3&&d<=1&&g.e;});
+  const upsell=guests.filter(g=>g.st==='Stayover'&&g.e&&g.nights>=3);
+  const items=[
+    ...co.slice(0,3).map(g=>({dot:'#A32D2D',txt:fn(g.n)+' — send review request',sub:'Recently checked out'})),
+    ...upsell.slice(0,2).map(g=>({dot:'#1D9E75',txt:fn(g.n)+' — upsell excursions',sub:'Stayover until '+g.dep}))
+  ];
+  document.getElementById('ov-alerts').innerHTML=items.length?items.map(it=>`<div class="row"><div class="dot" style="background:${it.dot}"></div><div style="flex:1;min-width:0"><div class="rn">${it.txt}</div><div style="font-size:11px;color:#5F5E5A">${it.sub}</div></div></div>`).join(''):'<div class="empty">No urgent actions.</div>';
+
+  const bdAll=guests.filter(g=>g.e&&bdayDays(g.dob)!==null&&bdayDays(g.dob)<=30).sort((a,b)=>bdayDays(a.dob)-bdayDays(b.dob));
+  document.getElementById('ov-bdays').innerHTML=bdAll.length?bdAll.slice(0,5).map(g=>{const d=bdayDays(g.dob);return`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${fn(g.n)}</div><div style="font-size:11px;color:#5F5E5A">${g.e}</div></div><div class="rd" style="color:${d<=3?'#A32D2D':d<=7?'#BA7517':'#1D9E75'};font-weight:500">in ${d}d</div></div>`;}).join(''):'<div class="empty">No birthdays in next 30 days.</div>';
+
+  const ih=guests.filter(g=>g.st==='Stayover'||g.st==='Checked IN').slice(0,8);
+  document.getElementById('ov-inhouse').innerHTML=ih.map(g=>{const[bg,fg]=avc(g.n);return`<div class="row"><div class="av" style="background:${bg};color:${fg}">${ini(g.n)}</div><div style="flex:1;min-width:0"><div class="rn">${g.n}</div><div style="font-size:11px;color:#5F5E5A">${g.nat} · ${g.room} · until ${g.dep}</div></div><span class="badge ${stBadge(g.st)}">${g.st}</span></div>`;}).join('');
+}
+
+/* DASHBOARD */
+function renderDashboard(){
+  if(chartsRendered)return;
+  chartsRendered=true;
+
+  const srcCount={};guests.forEach(g=>srcCount[g.src]=(srcCount[g.src]||0)+1);
+  const srcOrder=Object.entries(srcCount).sort((a,b)=>b[1]-a[1]);
+  const srcLabels=srcOrder.map(([s])=>ss(s));
+  const srcVals=srcOrder.map(([,v])=>v);
+  const srcColMap={'DESTINOS ENTRE AZULES S.L':'#1D9E75','Booking.com':'#378ADD','Agoda':'#EF9F27','DIRECT BOOKING':'#5DCAA5','MAKE MY TRIP (INDIA) PVT.LTD. (HOLIDAYS)':'#D85A30'};
+  const srcCols=srcOrder.map(([s])=>srcColMap[s]||'#9FE1CB');
+
+  new Chart(document.getElementById('srcChart'),{type:'doughnut',data:{labels:srcLabels,datasets:[{data:srcVals,backgroundColor:srcCols,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>' '+c.label+': '+c.parsed+' guests'}}}}});
+
+  const natCount={};guests.forEach(g=>natCount[g.nat]=(natCount[g.nat]||0)+1);
+  const natOrder=Object.entries(natCount).sort((a,b)=>b[1]-a[1]);
+  const natCols=['#1D9E75','#AFA9EC','#378ADD','#EF9F27','#9FE1CB','#D85A30','#FAC775','#F0997B','#97C459'];
+  new Chart(document.getElementById('natChart'),{type:'bar',data:{labels:natOrder.map(([n])=>n),datasets:[{label:'Guests',data:natOrder.map(([,v])=>v),backgroundColor:natOrder.map((_,i)=>natCols[i%natCols.length]),borderRadius:4,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>' '+c.parsed.x+' guests'}}},scales:{x:{grid:{color:'rgba(0,0,0,0.05)'},ticks:{color:'#888780',font:{size:11},stepSize:5},beginAtZero:true},y:{grid:{display:false},ticks:{color:'#888780',font:{size:11}}}}}});
+
+  const nDist={};guests.forEach(g=>nDist[g.nights]=(nDist[g.nights]||0)+1);
+  const nKeys=Object.keys(nDist).map(Number).sort((a,b)=>a-b);
+  new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nKeys.map(n=>n+' night'+(n>1?'s':'')),datasets:[{label:'Guests',data:nKeys.map(n=>nDist[n]),backgroundColor:nKeys.map(n=>n>=7?'#1D9E75':n>=4?'#5DCAA5':'#9FE1CB'),borderRadius:4,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>' '+c.parsed.y+' guests'}}},scales:{x:{grid:{display:false},ticks:{color:'#888780',font:{size:11}}},y:{grid:{color:'rgba(0,0,0,0.05)'},ticks:{color:'#888780',font:{size:11},stepSize:5},beginAtZero:true}}}});
+
+  const tourists=guests.filter(g=>g.type==='1. Tourist').length;
+  const locals=guests.filter(g=>g.type==='2. Local').length;
+  new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[tourists,locals],backgroundColor:['#1D9E75','#AFA9EC'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>' '+c.label+': '+c.parsed+' guests'}}}}});
+
+  const arrCount={};guests.forEach(g=>{if(g.arr)arrCount[g.arr]=(arrCount[g.arr]||0)+1;});
+  const arrSorted=Object.entries(arrCount).sort((a,b)=>{const da=parseDate(a[0]),db=parseDate(b[0]);return da-db;});
+  new Chart(document.getElementById('arrChart'),{type:'line',data:{labels:arrSorted.map(([d])=>{const dt=parseDate(d);return dt?String(dt.getDate())+' '+MONTHS[dt.getMonth()]:d;}),datasets:[{label:'Arrivals',data:arrSorted.map(([,v])=>v),borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.12)',fill:true,tension:0.3,pointBackgroundColor:'#1D9E75',pointRadius:5,pointHoverRadius:7,borderWidth:2.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>' '+c.parsed.y+' arrivals'}}},scales:{x:{grid:{display:false},ticks:{color:'#888780',font:{size:11},maxRotation:0}},y:{grid:{color:'rgba(0,0,0,0.05)'},ticks:{color:'#888780',font:{size:11},stepSize:5},beginAtZero:true}}}});
+}
+
+/* GUESTS */
+function renderGuestStats(){
+  const t=guests.length,e=guests.filter(g=>g.e).length,d=guests.filter(g=>g.dob).length;
+  document.getElementById('g-stats').innerHTML=`
+    <div class="sm"><div class="sl">Total</div><div class="sv">${t}</div></div>
+    <div class="sm"><div class="sl">Stayover</div><div class="sv">${guests.filter(g=>g.st==='Stayover').length}</div></div>
+    <div class="sm"><div class="sl">Checked in</div><div class="sv">${guests.filter(g=>g.st==='Checked IN').length}</div></div>
+    <div class="sm"><div class="sl">With email</div><div class="sv">${e}</div><div class="ss">${Math.round(e/t*100)}%</div></div>
+    <div class="sm"><div class="sl">DOB on file</div><div class="sv">${d}</div><div class="ss">of ${t}</div></div>`;
+  const se=document.getElementById('gfsrc'),ne=document.getElementById('gfnat');
+  se.innerHTML='<option value="">All sources</option>';ne.innerHTML='<option value="">All nationalities</option>';
+  [...new Set(guests.map(g=>g.src))].forEach(s=>{const o=document.createElement('option');o.value=s;o.text=ss(s);se.appendChild(o);});
+  [...new Set(guests.map(g=>g.nat))].sort().forEach(n=>{const o=document.createElement('option');o.value=n;o.text=n;ne.appendChild(o);});
+}
+
+function renderGuests(){
+  const q=document.getElementById('gsearch').value.toLowerCase();
+  const fst=document.getElementById('gfst').value,fsrc=document.getElementById('gfsrc').value,
+    fnat=document.getElementById('gfnat').value,ftype=document.getElementById('gftype').value;
+  const f=guests.filter(g=>{
+    if(q&&!g.n.toLowerCase().includes(q)&&!(g.e||'').toLowerCase().includes(q)&&!g.nat.toLowerCase().includes(q))return false;
+    if(fst&&g.st!==fst)return false;if(fsrc&&g.src!==fsrc)return false;
+    if(fnat&&g.nat!==fnat)return false;if(ftype&&g.type!==ftype)return false;
+    return true;
+  });
+  const el=document.getElementById('glist');
+  if(!f.length){el.innerHTML='<div class="empty">No guests match your filters</div>';return;}
+  el.innerHTML=f.map(g=>{
+    const[bg,fg]=avc(g.n);const dob=parseDOB(g.dob);const age=calcAge(dob);
+    const gt=(tags[g.id]||[]).map(t=>`<span class="tag-pill">${t}</span>`).join('');
+    return`<div class="gcard${selId===g.id?' sel':''}" onclick="openPanel('${g.id.replace(/'/g,"\\'")}')">
+      <div style="display:flex;align-items:center;gap:11px">
+        <div class="av" style="background:${bg};color:${fg}">${ini(g.n)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.n}</div>
+          <div style="font-size:12px;color:#5F5E5A">${dob?'DOB: '+fmtDOB(dob)+(age?' · age '+age:''):g.e||'no email'}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <span class="badge ${stBadge(g.st)}">${g.st}</span>
+          <span style="font-size:11px;color:#5F5E5A">${g.nights}n</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:9px;padding-top:9px;border-top:1px solid #E8E6E0;flex-wrap:wrap;font-size:12px">
+        <span style="color:#5F5E5A"><strong style="color:#2C2C2A">${g.nat}</strong></span>
+        <span style="color:#5F5E5A">Room <strong style="color:#2C2C2A">${g.room}</strong></span>
+        <span style="color:#5F5E5A">${g.arr} → ${g.dep}</span>
+        <span style="font-size:11px;padding:2px 7px;border-radius:20px;background:#F1EFE8;color:#5F5E5A">${ss(g.src)}</span>
+        ${g.type==='2. Local'?'<span class="badge bl">Local</span>':''}
+      </div>
+      ${gt?'<div style="margin-top:8px">'+gt+'</div>':''}
+    </div>`;
+  }).join('');
+}
+
+function openPanel(id){
+  selId=id;const g=guests.find(x=>x.id===id);if(!g)return;
+  const[bg,fg]=avc(g.n);const dob=parseDOB(g.dob);const age=calcAge(dob);
+  const gt=tags[g.id]||[];const gn=notes[g.id]||'';const esc=s=>s.replace(/'/g,"\\'");
+  document.getElementById('sp').style.display='block';
+  document.getElementById('sp').innerHTML=`<div class="panel-wrap" onclick="closeP(event)">
+    <div class="panel" onclick="event.stopPropagation()">
+      <button class="pc" onclick="closeP()">✕</button>
+      <div class="pav" style="background:${bg};color:${fg}">${ini(g.n)}</div>
+      <div class="pn">${g.n}</div>
+      <div class="ps">${g.nat}${age?' · age '+age:''} · ${g.type==='2. Local'?'Local':'Tourist'}</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btnp" style="flex:1" onclick="cpE('${esc(g.e||'')}',this)">${g.e?'Copy email':'No email'}</button>
+        <button class="btn" onclick="addTag('${esc(id)}')">+ Tag</button>
+      </div>
+      <div style="margin-bottom:16px">
+        <div class="sec">Guest profile</div>
+        ${dob?'<div class="dr"><span class="dk">Date of birth</span><span class="dv dob">'+fmtDOB(dob)+'</span></div>':''}
+        ${age?'<div class="dr"><span class="dk">Age</span><span class="dv">'+age+' years</span></div>':''}
+        <div class="dr"><span class="dk">Nationality</span><span class="dv">${g.nat}</span></div>
+        <div class="dr"><span class="dk">Identity</span><span class="dv">${g.id}</span></div>
+        <div class="dr"><span class="dk">Email</span><span class="dv">${g.e||'—'}</span></div>
+        <div class="dr"><span class="dk">Pax</span><span class="dv">${g.pax}</span></div>
+      </div>
+      <div style="margin-bottom:16px">
+        <div class="sec">Booking</div>
+        <div class="dr"><span class="dk">Status</span><span class="dv">${g.st}</span></div>
+        <div class="dr"><span class="dk">Room</span><span class="dv">${g.room}</span></div>
+        <div class="dr"><span class="dk">Arrival</span><span class="dv">${g.arr}</span></div>
+        <div class="dr"><span class="dk">Departure</span><span class="dv">${g.dep}</span></div>
+        <div class="dr"><span class="dk">Nights</span><span class="dv">${g.nights}</span></div>
+        <div class="dr"><span class="dk">Source</span><span class="dv">${ss(g.src)}</span></div>
+      </div>
+      <div style="margin-bottom:16px">
+        <div class="sec">Tags</div>
+        <div>${gt.length?gt.map(t=>'<span class="tag-pill">'+t+' <span class="x" onclick="removeTag(\''+esc(id)+'\',\''+t+'\')">✕</span></span>').join(''):'<span style="font-size:12px;color:#5F5E5A">No tags yet</span>'}</div>
+      </div>
+      <div>
+        <div class="sec">Staff notes</div>
+        <textarea id="ni" style="width:100%;min-height:80px;font-size:13px;border:1px solid #E8E6E0;border-radius:8px;padding:9px;font-family:inherit;background:#fff;resize:vertical" placeholder="Add a note...">${gn}</textarea>
+        <button class="btn" style="margin-top:6px;width:100%" onclick="saveNote('${esc(id)}')">Save note</button>
+      </div>
+    </div>
+  </div>`;
+}
+function closeP(e){if(e&&!e.target.classList.contains('panel-wrap'))return;document.getElementById('sp').style.display='none';selId=null;renderGuests();}
+function cpE(e,btn){if(!e)return;navigator.clipboard.writeText(e).then(()=>{btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy email',1500);});}
+function addTag(id){const t=prompt('Tag (e.g. VIP, Repeat, Honeymoon, Complaint):');if(!t||!t.trim())return;if(!tags[id])tags[id]=[];if(!tags[id].includes(t.trim()))tags[id].push(t.trim());openPanel(id);}
+function removeTag(id,t){tags[id]=(tags[id]||[]).filter(x=>x!==t);openPanel(id);}
+function saveNote(id){notes[id]=document.getElementById('ni').value;const b=document.querySelector('#sp .btn:last-child');if(b){b.textContent='Saved!';setTimeout(()=>b.textContent='Save note',1500);}}
+
+/* ACTIONS */
+const ACTIONS = {
+  review:{title:'Post-stay review request',badge:'bu',btext:'Highest ROI',
+    desc:'Send 1–2 days after checkout. Most guests who had a good stay will review if asked. Google reviews directly boost direct bookings.',
+    tpl:`Subject: How was your stay at Kaani Village?
+
+Dear [Name],
+
+Thank you for choosing Kaani Village. We hope you had a wonderful time in Maafushi.
+
+Could you spare 2 minutes to leave us a Google review? It means the world to our small team.
+
+Leave a review: [YOUR GOOGLE REVIEW LINK]
+
+If anything could have been better, just reply to this email — we'd love to hear from you.
+
+Warm regards,
+Kaani Village Team`},
+  winback:{title:'Win-back — return guest offer',badge:'bh',btext:'High value',
+    desc:'Send to OTA guests 3–4 weeks after checkout. Offer 10% off direct booking.',
+    tpl:`Subject: A special offer just for you — book direct and save 10%
+
+Dear [Name],
+
+We loved having you at Kaani Village. We hope Maafushi left you with memories worth coming back for.
+
+For your next visit, book directly with us and save 10% — no OTA fees, just a better rate from us to you.
+
+Book here: [DIRECT BOOKING LINK]
+Offer valid until: [DATE]
+
+Reply anytime to check availability.
+
+See you soon,
+Kaani Village Team`},
+  upsell:{title:'In-stay upsell',badge:'bh',btext:'Revenue booster',
+    desc:'Send to current stayovers on day 2–3 of their stay.',
+    tpl:`Subject: Make the most of your stay at Kaani Village
+
+Dear [Name],
+
+Hope you're enjoying Maafushi! A few things we can arrange to make your stay even better:
+
+  · Island hopping & snorkelling — USD 30/person
+  · Head-to-toe relaxation massage — USD 50/person
+  · Lunch + dinner upgrade — USD 25/person/day
+  · Sunset dolphin cruise — USD 35/person
+
+Just reply here or visit reception — we'll take care of everything.
+
+Kaani Village Team`},
+  bday:{title:'Birthday message',badge:'be',btext:'Easy win',
+    desc:'You have DOBs for 38 of 39 guests. Check every Monday and send that week\'s birthdays.',
+    tpl:`Subject: Happy birthday from Kaani Village!
+
+Dear [Name],
+
+Wishing you a very happy birthday from all of us at Kaani Village!
+
+As a birthday gift, we'd love to welcome you back to Maafushi with a complimentary room upgrade on your next direct booking — just mention this email.
+
+We hope your day is as beautiful as the Maldives.
+
+Warm wishes,
+Kaani Village Team`},
+  seasonal:{title:'Seasonal offer blast',badge:'bm',btext:'Planned',
+    desc:'Send to your full guest list when occupancy looks soft.',
+    tpl:`Subject: Exclusive offer for past Kaani Village guests
+
+Dear [Name],
+
+We hope you have wonderful memories of your time with us in Maafushi.
+
+As a valued past guest, we'd like to offer you an exclusive deal:
+
+  15% off direct bookings for travel June – September 2026
+  Book by: 31 May 2026
+
+Book here: [DIRECT BOOKING LINK]
+
+Kaani Village Team`}
+};
+
+const CHECKS = {
+  daily:['Send review request to yesterday\'s checkouts','Check stayovers — anyone to upsell today','Check Overview tab for any urgent actions'],
+  weekly:['Export new Ezee report and import into CRM','Send birthday messages for the coming week','Tag VIP / repeat / honeymoon guests','Follow up any unanswered guest messages','Send upsell email to stayovers on night 2 or 3'],
+  monthly:['Send win-back offer to OTA guests from 30–45 days ago','Run seasonal blast if next month looks soft','Review email capture — chase missing local emails','Check dashboard — which source and nationality is growing','Refresh email templates if needed']
+};
+
+let curAction = 'review';
+function swa(a,btn){
+  curAction=a;
+  document.querySelectorAll('#action-nav .nb').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderAction();
+}
+
+function renderAction(){
+  const el=document.getElementById('action-content');
+  if(curAction==='checklist'){
+    let html='<div class="card">';
+    ['daily','weekly','monthly'].forEach(freq=>{
+      html+='<div class="sec" style="margin-top:'+(freq==='daily'?'0':'14px')+'">'+(freq==='daily'?'Daily (5 min)':freq==='weekly'?'Weekly (15 min)':'Monthly (30 min)')+'</div>';
+      CHECKS[freq].forEach((it,i)=>html+='<div class="ck"><input type="checkbox" id="ck-'+freq+'-'+i+'"><label for="ck-'+freq+'-'+i+'">'+it+'</label></div>');
+      if(freq!=='monthly')html+='<div class="divider"></div>';
+    });
+    html+='</div>';
+    el.innerHTML=html;
+    return;
+  }
+  const ac=ACTIONS[curAction];
+  const co=guests.filter(g=>{const d=daysDiff(parseDate(g.dep));return g.e&&d!==null&&d>=-3&&d<=1;});
+  const sov=guests.filter(g=>g.st==='Stayover'&&g.e);
+  const ota=guests.filter(g=>g.src!=='DIRECT BOOKING'&&g.e);
+  const bd=guests.filter(g=>g.e&&bdayDays(g.dob)!==null&&bdayDays(g.dob)<=30).sort((a,b)=>bdayDays(a.dob)-bdayDays(b.dob));
+  const all=guests.filter(g=>g.e);
+  const gmap={review:co,winback:ota,upsell:sov,bday:bd,seasonal:all};
+  const gl=gmap[curAction]||[];
+  window['_ae_'+curAction]=gl.map(g=>g.e);
+  el.innerHTML=`<div class="card">
+    <div class="ch"><div class="ct">${ac.title}</div><span class="badge ${ac.badge}">${ac.btext}</span></div>
+    <div class="cd">${ac.desc}</div>
+    <div class="sec">Who to send to (${gl.length} guests)</div>
+    <div style="margin-bottom:14px">${gl.slice(0,5).map(g=>'<div class="row"><div style="flex:1;min-width:0;color:#5F5E5A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+g.n+'</div><div style="font-size:12px;color:#2C2C2A;flex-shrink:0">'+g.e+'</div></div>').join('')+(gl.length>5?'<div style="font-size:12px;color:#5F5E5A;padding-top:8px">+'+(gl.length-5)+' more</div>':'')}</div>
+    <div class="sec">Email template</div>
+    <div class="tpl" id="atpl-${curAction}">${ac.tpl}</div>
+    <div class="btns">
+      <button class="btn btnp" onclick="cpTpl('atpl-${curAction}',this)">Copy template</button>
+      <button class="btn" onclick="cpAE(this)">Copy emails (${gl.length})</button>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:#5F5E5A">Paste into Gmail BCC · personalise [Name] before sending</div>
+  </div>`;
+}
+
+function cpTpl(id,btn){navigator.clipboard.writeText(document.getElementById(id).innerText).then(()=>{btn.textContent='Copied!';btn.classList.add('done');setTimeout(()=>{btn.textContent='Copy template';btn.classList.remove('done');},1800);});}
+function cpAE(btn){const k='_ae_'+curAction;navigator.clipboard.writeText((window[k]||[]).join(', ')).then(()=>{btn.textContent='Copied!';btn.classList.add('done');setTimeout(()=>{btn.classList.remove('done');renderAction();},1800);});}
+
+/* MARKETING */
+function renderMarketing(){
+  const all=guests.filter(g=>g.e);
+  const direct=guests.filter(g=>g.src==='DIRECT BOOKING'&&g.e);
+  const ota=guests.filter(g=>g.src!=='DIRECT BOOKING'&&g.e);
+  const dest=guests.filter(g=>g.src.includes('DESTINOS')&&g.e);
+  const tourists=guests.filter(g=>g.type==='1. Tourist'&&g.e);
+  const bdAll=guests.filter(g=>g.e&&g.dob);
+  document.getElementById('mkt-stats').innerHTML=`
+    <div class="sm"><div class="sl">Total emails</div><div class="sv">${all.length}</div></div>
+    <div class="sm"><div class="sl">No email</div><div class="sv">${guests.length-all.length}</div><div class="ss">mainly locals</div></div>
+    <div class="sm"><div class="sl">Direct bookers</div><div class="sv">${direct.length}</div><div class="ss">highest value</div></div>
+    <div class="sm"><div class="sl">With DOB</div><div class="sv">${bdAll.length}</div><div class="ss">birthday targets</div></div>`;
+  document.getElementById('mkt-count').textContent=all.length+' emails on file';
+  window._allEmails=all.map(g=>g.e);
+  const groups=[
+    {label:'All guests with email',detail:all.length+' contacts',emails:all.map(g=>g.e)},
+    {label:'Direct bookings only',detail:direct.length+' contacts — loyalty & win-back priority',emails:direct.map(g=>g.e)},
+    {label:'OTA guests',detail:ota.length+' contacts — win-back offer targets',emails:ota.map(g=>g.e)},
+    {label:'Destinos Entre Azules group',detail:dest.length+' Spanish contacts',emails:dest.map(g=>g.e)},
+    {label:'Tourists only (excl. locals)',detail:tourists.length+' contacts',emails:tourists.map(g=>g.e)},
+    {label:'Guests with birthday on file',detail:bdAll.length+' contacts — for birthday campaign',emails:bdAll.map(g=>g.e)}
+  ];
+  document.getElementById('mkt-groups').innerHTML=groups.map((gr,i)=>`
+    <div class="card" style="padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500">${gr.label}</div><div style="font-size:11px;color:#5F5E5A;margin-top:3px">${gr.detail}</div></div>
+      <button class="btn" id="mgb${i}" onclick="cpMG(${i},this)">Copy emails</button>
+    </div>`).join('');
+  window._mktGroups=groups;
+}
+function cpMG(i,btn){navigator.clipboard.writeText(window._mktGroups[i].emails.join(', ')).then(()=>{btn.textContent='Copied!';btn.classList.add('done');setTimeout(()=>{btn.textContent='Copy emails';btn.classList.remove('done');},2000);});}
+function cpAll(btn){navigator.clipboard.writeText(window._allEmails.join(', ')).then(()=>{btn.textContent='Copied!';btn.classList.add('done');setTimeout(()=>{btn.textContent='Copy all emails';btn.classList.remove('done');},2000);});}
+
+/* PLAN */
+const PLAN = [
+  {month:'Month 1 — April / May',focus:'Foundation',badge:'be',tasks:[
+    {w:'Week 1–2',title:'Clean up data',detail:'Import Ezee reports weekly. Chase missing emails at front desk. Brief team to collect email at every check-in.'},
+    {w:'Week 2–3',title:'Set up review flow',detail:'Save Google Review link as WhatsApp quick reply. Send to every checkout within 24 hours.'},
+    {w:'Week 3–4',title:'First upsell',detail:'Email current stayovers with excursion menu. Target guests on night 2–3.'},
+    {w:'End of month',title:'Target: 90% email capture, reviews flowing',detail:''}
+  ]},
+  {month:'Month 2 — May',focus:'First campaign',badge:'bh',tasks:[
+    {w:'Week 1',title:'Win-back campaign',detail:'Email all April OTA guests a 10% direct booking offer. Valid June–September.'},
+    {w:'Week 2',title:'WhatsApp follow-up',detail:'5 days after email, send short WhatsApp to non-responders.'},
+    {w:'Week 3–4',title:'Personal outreach to Destinos group',detail:'Individual emails to 20+ Spanish guests. Frame as personal invitation to return independently.'},
+    {w:'End of month',title:'Target: first direct booking from campaign',detail:''}
+  ]},
+  {month:'Month 3 — June',focus:'Birthday engine',badge:'be',tasks:[
+    {w:'Every Monday',title:'Check birthday tab',detail:'Open CRM every Monday, send birthday messages for that week. 5 minutes max.'},
+    {w:'Week 2',title:'Add returning guest benefit',detail:'Free welcome drink, early check-in, or upgrade. Add to booking page.'},
+    {w:'Week 3–4',title:'Upsell all June stayovers',detail:'Refine upsell message based on May results.'},
+    {w:'End of month',title:'Target: birthday messages sent weekly without fail',detail:''}
+  ]},
+  {month:'Month 4 — July',focus:'Mid-year push',badge:'bm',tasks:[
+    {w:'Week 1',title:'Q4 early bird blast',detail:'Email full list. 12–15% off October–December travel, book by August.'},
+    {w:'Week 2',title:'Segment by nationality',detail:'Spanish: group travel angle. Indian: package value with transfers & meals.'},
+    {w:'Week 3–4',title:'Tag your best guests',detail:'Tag VIP, Repeat, Honeymoon. Personal messages to top 10–15.'},
+    {w:'End of month',title:'Target: seasonal blast sent, segmented versions tested',detail:''}
+  ]},
+  {month:'Month 5 — August',focus:'Deepen relationships',badge:'bh',tasks:[
+    {w:'Week 1',title:'Launch post-stay sequence',detail:'Every checkout: review request day 1, win-back offer day 21. Make permanent.'},
+    {w:'Week 2–3',title:'Personal messages to top guests',detail:'Individual messages (not templates) to top 10–15 tagged guests.'},
+    {w:'Week 4',title:'Collect missing emails',detail:'Cross-check local Maldivian guests. Update records after every check-in.'},
+    {w:'End of month',title:'Target: post-stay sequence running for every checkout',detail:''}
+  ]},
+  {month:'Month 6 — September',focus:'Measure & scale',badge:'bu',tasks:[
+    {w:'Week 1',title:'Review your numbers',detail:'Direct booking share (target 18–20%), email capture (95%), Google reviews (doubled).'},
+    {w:'Week 2',title:'Double what worked',detail:'Which campaign got replies/bookings? Do it more often. Drop what you skipped.'},
+    {w:'Week 3–4',title:'Plan next 6 months',detail:'Set up newsletter for loyal guests, consider WhatsApp broadcast list.'},
+    {w:'End of month',title:'Target: 2x direct bookings vs April baseline',detail:''}
+  ]}
+];
+
+function renderPlan(){
+  document.getElementById('plan-content').innerHTML=PLAN.map(m=>`
+    <div class="cal-month">
+      <div class="cal-mh"><span>${m.month}</span><span class="badge ${m.badge}">${m.focus}</span></div>
+      ${m.tasks.map(t=>`<div class="cal-task"><div class="cal-week">${t.w}</div><div class="cal-body"><div class="cal-title">${t.title}</div>${t.detail?'<div class="cal-detail">'+t.detail+'</div>':''}</div></div>`).join('')}
+    </div>`).join('');
+}
+
+/* IMPORT */
+function doImport(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const lines=ev.target.result.split('\n').filter(l=>l.trim());
+    if(lines.length<2){document.getElementById('imsg').textContent='File empty.';return;}
+    const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));
+    if(headers.indexOf('Identity')<0){document.getElementById('imsg').textContent='No Identity column found.';return;}
+    let added=0,updated=0;
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split(',').map(c=>c.trim().replace(/^"|"$/g,''));
+      if(cols.length<headers.length-3)continue;
+      const obj={};headers.forEach((h,j)=>{obj[h]=cols[j]||null;});
+      if(!obj.Identity)continue;
+      function norm(d){if(!d)return null;const m=d.match(/(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})/);if(m){const[,a,b,c]=m;const yr=c.length===2?'20'+c:c;return a.padStart(2,'0')+'-'+b.padStart(2,'0')+'-'+yr;}return null;}
+      const rec={n:obj['Guest Name']||'',e:obj['Email']||null,dob:norm(obj['Address']),st:obj['Status']||'',src:obj['Source']||'',arr:obj['Arrival']||'',dep:obj['Departure']||'',nights:+obj['Nights']||0,room:obj['Room']||'',nat:obj['Nationality']||'',pax:obj['Pax']||'',id:obj['Identity'],type:obj['Guest Type']||''};
+      const idx=guests.findIndex(g=>g.id===obj.Identity);
+      if(idx>=0){guests[idx]={...guests[idx],...rec};updated++;}else{guests.push(rec);added++;}
+    }
+    document.getElementById('imsg').textContent='Done: '+added+' added, '+updated+' updated. No duplicates.';
+    document.getElementById('ic').textContent=guests.length+' guests loaded';
+    renderOverview();
+    chartsRendered=false;
+    renderGuestStats();renderGuests();renderMarketing();
+  };
+  reader.readAsText(file);
+}
+
+/* TAB SWITCH */
+function sw(tab,btn){
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.topbar .nb').forEach(b=>b.classList.remove('on'));
+  document.getElementById('pane-'+tab).classList.add('on');
+  btn.classList.add('on');
+  if(tab==='overview')renderOverview();
+  if(tab==='dashboard')renderDashboard();
+  if(tab==='guests'){renderGuestStats();renderGuests();}
+  if(tab==='actions')renderAction();
+  if(tab==='marketing')renderMarketing();
+  if(tab==='plan')renderPlan();
+}
+
+renderOverview();
+</script>
+
+</body>
+</html>
