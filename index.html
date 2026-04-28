@@ -201,6 +201,29 @@ h1,h2,h3,.display{font-family:'Inter Tight',sans-serif;font-weight:700;letter-sp
   .topbar-title{font-size:18px}
   .login-box h1{font-size:34px}
 }
+
+/* ============== PROPERTY SELECTOR ============== */
+.prop-selector{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:14px 18px;margin-bottom:24px;background:var(--kaani-cream-deep);border:1px solid var(--line-peach);border-radius:14px}
+.prop-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-text);font-weight:600;margin-right:4px}
+.prop-pill{padding:7px 14px;font-size:12px;border-radius:999px;border:1px solid var(--line-peach);background:var(--kaani-cream);color:var(--black-soft);cursor:pointer;font-family:'Inter',sans-serif;font-weight:500;transition:all 0.15s;white-space:nowrap}
+.prop-pill:hover{border-color:var(--kaani-orange);color:var(--kaani-orange)}
+.prop-pill.on{background:var(--kaani-orange);color:#fff;border-color:var(--kaani-orange);font-weight:600}
+.prop-pill.on:hover{background:var(--kaani-orange-hover);color:#fff;border-color:var(--kaani-orange-hover)}
+
+@media (max-width:600px){
+  .prop-selector{padding:12px;gap:6px}
+  .prop-pill{padding:6px 11px;font-size:11px}
+}
+
+/* ============== PROPERTY SELECTOR ============== */
+.prop-bar{display:flex;align-items:center;gap:12px;padding:14px 18px;background:var(--kaani-cream-deep);border:1px solid var(--line-peach);border-radius:14px;margin-bottom:24px;flex-wrap:wrap}
+.prop-bar-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-text);font-weight:600}
+.prop-pills{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.pp{padding:6px 14px;font-size:12px;border-radius:999px;border:1px solid var(--line-peach);background:transparent;color:var(--gray-text);cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;font-weight:500;transition:all 0.15s}
+.pp:hover{color:var(--black);background:var(--kaani-peach)}
+.pp.on{background:var(--kaani-orange);color:#fff;border-color:var(--kaani-orange);font-weight:600}
+.prop-indicator{font-size:11px;color:var(--gray-text);font-weight:500;text-transform:uppercase;letter-spacing:0.06em}
+.prop-indicator strong{color:var(--kaani-orange);font-weight:700}
 </style>
 </head>
 <body>
@@ -245,6 +268,13 @@ h1,h2,h3,.display{font-family:'Inter Tight',sans-serif;font-weight:700;letter-sp
     <button class="nb" onclick="sw('plan',this)">Plan</button>
     <button class="nb" onclick="sw('import',this)">Import</button>
     <button class="nb" onclick="sw('admin',this)" id="admin-tab" style="display:none">Admin</button>
+  </div>
+
+  <div id="property-bar"></div>
+
+  <div class="prop-bar" id="prop-bar" style="display:none">
+    <span class="prop-bar-label">Viewing</span>
+    <div class="prop-pills" id="prop-pills"></div>
   </div>
 
   <div id="pane-overview" class="pane on"><div class="loading">Loading overview</div></div>
