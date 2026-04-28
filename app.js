@@ -17,7 +17,7 @@ const STATE = {
   guestsPerPage: 50,
   selectedGuestId: null,
   chartsRendered: false,
-  selectedPropertyId: 'all',  // 'all' or a property ID number
+  selectedPropertyId: null,  // null = All Properties, or a specific property ID number
 };
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -283,7 +283,7 @@ function renderPropertySelector() {
   const selectedName = all ? 'All Properties' : (STATE.properties.find(p => p.id == sel)?.name || 'Unknown');
   let html = `<div class="prop-selector">
     <div class="prop-label">Viewing:</div>
-    <button class="prop-pill ${all ? 'on' : ''}" onclick="changeProperty('all')">All Properties</button>`;
+    <button class="prop-pill ${all ? 'on' : ''}" onclick="changeProperty(null)">All Properties</button>`;
   STATE.properties.forEach(p => {
     html += `<button class="prop-pill ${sel == p.id ? 'on' : ''}" onclick="changeProperty(${p.id})">${escapeHtml(p.name)}</button>`;
   });
@@ -313,14 +313,16 @@ function changeProperty(id) {
 
 // Helper: applies property filter to a Supabase query on the stays table
 function applyPropertyFilter(query) {
-  if (STATE.selectedPropertyId === 'all') return query;
+  if (STATE.selectedPropertyId === null) return query;
   return query.eq('property_id', STATE.selectedPropertyId);
 }
 
 // Helper: get list of guest IDs that have stayed at the selected property
 async function getGuestIdsForProperty() {
-  if (STATE.selectedPropertyId === 'all') return null;  // null = all guests
-  const { data } = await sb.from('stays').select('guest_id').eq('property_id', STATE.selectedPropertyId);
+  // Returns null = all guests, or array of guest IDs for specific property
+  if (STATE.selectedPropertyId === null) return null;
+  const propIds = [STATE.selectedPropertyId];
+  const { data } = await sb.from('stays').select('guest_id').in('property_id', propIds);
   return [...new Set((data || []).map(s => s.guest_id))];
 }
 
@@ -570,7 +572,7 @@ async function loadGuests(){
     const to=from+STATE.guestsPerPage-1;
 
     let query=sb.from('guests').select('*',{count:'exact'}).order('last_stay_date',{ascending:false,nullsFirst:false}).range(from,to);
-    if(STATE.selectedPropertyId !== 'all'){
+    if(STATE.selectedPropertyId !== null){
       const propGuestIds = await getGuestIdsForProperty();
       if(propGuestIds.length === 0){
         STATE.currentGuests = [];
@@ -781,7 +783,7 @@ async function renderAction(key,btn){
   let segmentLabel='';
 
   const actionPropGuestIds = await getGuestIdsForProperty();
-  const propLabel = STATE.selectedPropertyId === 'all' ? '' : ' (' + (STATE.properties.find(p=>p.id==STATE.selectedPropertyId)?.name||'') + ')';
+  const propLabel = STATE.selectedPropertyId === null ? '' : ' (' + (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'') + ')';
   function filterByProp(guestList){
     if(!actionPropGuestIds) return guestList;
     const idSet = new Set(actionPropGuestIds);
@@ -790,7 +792,7 @@ async function renderAction(key,btn){
 
   if(key==='review_request'){
     let q = sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false});
-    if(STATE.selectedPropertyId !== 'all') q = q.eq('property_id', STATE.selectedPropertyId);
+    if(STATE.selectedPropertyId !== null) q = q.in('property_id', [STATE.selectedPropertyId]);
     const{data}=await q;
     guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
     segmentLabel='Recent checkouts (last 3 days)' + propLabel;
@@ -804,7 +806,7 @@ async function renderAction(key,btn){
     }
   }else if(key==='upsell'){
     let q = sb.from('stays').select('*,guests(*)').in('status',['checked_in','stayover']).gte('nights',3);
-    if(STATE.selectedPropertyId !== 'all') q = q.eq('property_id', STATE.selectedPropertyId);
+    if(STATE.selectedPropertyId !== null) q = q.in('property_id', [STATE.selectedPropertyId]);
     const{data}=await q;
     guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
     segmentLabel='Current stayovers (3+ nights with email)' + propLabel;
