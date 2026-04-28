@@ -1415,8 +1415,6 @@ function classifyChannel(source){
 }
 
 // Known placeholder emails - treated as no real email
-const PLACEHOLDER_EMAILS=['info@destinosentreazules.com'];
-function isPlaceholderEmail(e){if(!e)return false;return PLACEHOLDER_EMAILS.includes(e.toLowerCase().trim());}
 
 async function importCSV(text, propId){
   const{headers,rows}=parseCSV(text);
