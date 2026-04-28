@@ -21,6 +21,74 @@ const STATE = {
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const AVCOLS = ['#E1F5EE/#0F6E56','#E6F1FB/#185FA5','#FAEEDA/#633806','#FBEAF0/#72243E','#EAF3DE/#27500A','#EEEDFE/#3C3489'];
+
+// 6-MONTH PLAN DATA
+const PLAN_MONTHS = [
+  {month:'Month 1 — April / May',focus:'Foundation',badge:'be',tasks:[
+    {w:'Week 1–2',title:'Clean up data',detail:'Import Ezee reports weekly. Chase missing emails at front desk. Brief team to collect email at every check-in.'},
+    {w:'Week 2–3',title:'Set up review flow',detail:'Save Google Review link as WhatsApp quick reply. Send to every checkout within 24 hours.'},
+    {w:'Week 3–4',title:'First upsell',detail:'Email current stayovers with excursion menu. Target guests on night 2–3.'},
+    {w:'End of month',title:'Target: 90% email capture, reviews flowing',detail:''}
+  ]},
+  {month:'Month 2 — May',focus:'First campaign',badge:'bh',tasks:[
+    {w:'Week 1',title:'Win-back campaign',detail:'Email all April OTA guests a 10% direct booking offer. Valid June–September.'},
+    {w:'Week 2',title:'WhatsApp follow-up',detail:'5 days after email, send short WhatsApp to non-responders.'},
+    {w:'Week 3–4',title:'Personal outreach to Destinos group',detail:'Individual emails to 20+ Spanish guests. Frame as personal invitation to return independently.'},
+    {w:'End of month',title:'Target: first direct booking from campaign',detail:''}
+  ]},
+  {month:'Month 3 — June',focus:'Birthday engine',badge:'be',tasks:[
+    {w:'Every Monday',title:'Check birthday tab',detail:'Open CRM every Monday, send birthday messages for that week. 5 minutes max.'},
+    {w:'Week 2',title:'Add returning guest benefit',detail:'Free welcome drink, early check-in, or upgrade. Add to booking page.'},
+    {w:'Week 3–4',title:'Upsell all June stayovers',detail:'Refine upsell message based on May results.'},
+    {w:'End of month',title:'Target: birthday messages sent weekly without fail',detail:''}
+  ]},
+  {month:'Month 4 — July',focus:'Mid-year push',badge:'bm',tasks:[
+    {w:'Week 1',title:'Q4 early bird blast',detail:'Email full list. 12–15% off October–December travel, book by August.'},
+    {w:'Week 2',title:'Segment by nationality',detail:'Spanish: group travel angle. Indian: package value with transfers and meals.'},
+    {w:'Week 3–4',title:'Tag your best guests',detail:'Tag VIP, Repeat, Honeymoon. Personal messages to top 10–15.'},
+    {w:'End of month',title:'Target: seasonal blast sent, segmented versions tested',detail:''}
+  ]},
+  {month:'Month 5 — August',focus:'Deepen relationships',badge:'bh',tasks:[
+    {w:'Week 1',title:'Launch post-stay sequence',detail:'Every checkout: review request day 1, win-back offer day 21. Make permanent.'},
+    {w:'Week 2–3',title:'Personal messages to top guests',detail:'Individual messages (not templates) to top 10–15 tagged guests.'},
+    {w:'Week 4',title:'Collect missing emails',detail:'Cross-check local Maldivian guests. Update records after every check-in.'},
+    {w:'End of month',title:'Target: post-stay sequence running for every checkout',detail:''}
+  ]},
+  {month:'Month 6 — September',focus:'Measure and scale',badge:'bu',tasks:[
+    {w:'Week 1',title:'Review your numbers',detail:'Direct booking share (target 18–20%), email capture (95%), Google reviews (doubled).'},
+    {w:'Week 2',title:'Double what worked',detail:'Which campaign got replies/bookings? Do it more often. Drop what you skipped.'},
+    {w:'Week 3–4',title:'Plan next 6 months',detail:'Set up newsletter for loyal guests, consider WhatsApp broadcast list.'},
+    {w:'End of month',title:'Target: 2x direct bookings vs April baseline',detail:''}
+  ]}
+];
+
+const CHECKLIST_DATA = {
+  daily:['Send review request to yesterday\'s checkouts','Check stayovers — anyone to upsell today','Check Overview tab for any urgent actions'],
+  weekly:['Export new Ezee report and import into CRM','Send birthday messages for the coming week','Tag VIP / repeat / honeymoon guests','Follow up any unanswered guest messages','Send upsell email to stayovers on night 2 or 3'],
+  monthly:['Send win-back offer to OTA guests from 30–45 days ago','Run seasonal blast if next month looks soft','Review email capture — chase missing local emails','Check dashboard — which source and nationality is growing','Refresh email templates if needed']
+};
+
+function renderPlanPane(){
+  const el=document.getElementById('pane-plan');
+  if(!el)return;
+  el.innerHTML=`
+    <div class="card">
+      <div class="ch"><div class="ct">6-month CRM action plan</div><span class="badge be">Apr – Sep 2026</span></div>
+      <div class="cd">Your week-by-week tasks to increase direct bookings and repeat guests. Consistent execution will move direct bookings from 10% to 18–20% within 6 months.</div>
+      <div class="sg">
+        <div class="sm"><div class="sl">Direct target</div><div class="sv">20%</div><div class="ss">from 10%</div></div>
+        <div class="sm"><div class="sl">Email capture</div><div class="sv">95%</div><div class="ss">from 79%</div></div>
+        <div class="sm"><div class="sl">Repeat rate</div><div class="sv">15%</div><div class="ss">from ~5%</div></div>
+        <div class="sm"><div class="sl">Reviews</div><div class="sv">2x</div><div class="ss">Google count</div></div>
+      </div>
+    </div>
+    ${PLAN_MONTHS.map(m=>`
+      <div class="card">
+        <div class="ch"><div class="ct">${m.month}</div><span class="badge ${m.badge}">${m.focus}</span></div>
+        ${m.tasks.map(t=>`<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #E8E6E0;align-items:flex-start"><div style="font-size:11px;color:#5F5E5A;width:80px;flex-shrink:0;padding-top:2px;font-weight:500">${t.w}</div><div style="flex:1"><div style="font-size:13px;font-weight:500">${t.title}</div>${t.detail?'<div style="font-size:12px;color:#5F5E5A;margin-top:3px;line-height:1.6">'+t.detail+'</div>':''}</div></div>`).join('')}
+      </div>`).join('')}`;
+}
+
 // Known placeholder/operator emails — treated as no real email
 // Add more here as you discover them
 const PLACEHOLDER_EMAILS = [
@@ -121,7 +189,8 @@ async function loadInitialData(){
 function sw(tab,btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.nav .nb').forEach(b=>b.classList.remove('on'));
-  document.getElementById('pane-'+tab).classList.add('on');
+  const pane=document.getElementById('pane-'+tab);
+  if(pane)pane.classList.add('on');
   btn.classList.add('on');
   if(tab==='overview')renderOverview();
   if(tab==='dashboard')renderDashboard();
@@ -130,6 +199,7 @@ function sw(tab,btn){
   if(tab==='marketing')renderMarketingPane();
   if(tab==='templates')renderTemplatesPane();
   if(tab==='reports')renderReportsPane();
+  if(tab==='plan')renderPlanPane();
   if(tab==='import')renderImportPane();
   if(tab==='admin')renderAdminPane();
 }
@@ -206,12 +276,14 @@ async function renderDashboard(){
   const el=document.getElementById('pane-dashboard');
   el.innerHTML='<div class="loading">Loading dashboard</div>';
 
-  const[stats,qualityRes,sourceRes,natRes,nightsRes]=await Promise.all([
+  const[stats,qualityRes,sourceRes,natRes,nightsRes,typeRes,arrRes]=await Promise.all([
     sb.from('v_dashboard_stats').select('*').single(),
     sb.from('v_data_quality').select('*').single(),
     sb.from('stays').select('source,channel_type'),
     sb.from('guests').select('nationality'),
-    sb.from('stays').select('nights')
+    sb.from('stays').select('nights'),
+    sb.from('guests').select('guest_type'),
+    sb.from('stays').select('arrival_date').gte('arrival_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10))
   ]);
 
   const s=stats.data||{};const q=qualityRes.data||{};
@@ -233,15 +305,21 @@ async function renderDashboard(){
     </div>
     <div class="g2">
       <div class="card"><div class="ch"><div class="ct">Stay length distribution</div><div class="cs">stays by nights</div></div><div class="cw"><canvas id="nightsChart"></canvas></div></div>
-      <div class="card">
-        <div class="ct" style="margin-bottom:12px">Data quality</div>
-        <div style="font-size:13px;color:#5F5E5A;line-height:1.8">
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>Email capture</span><strong style="color:#2C2C2A">${q.pct_email||0}%</strong></div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>Phone capture</span><strong style="color:#2C2C2A">${q.pct_phone||0}%</strong></div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>DOB capture</span><strong style="color:#2C2C2A">${q.pct_dob||0}%</strong></div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0"><span>ID/Passport on file</span><strong style="color:#2C2C2A">${q.pct_id||0}%</strong></div>
-        </div>
+      <div class="card"><div class="ch"><div class="ct">Tourist vs Local</div><div class="cs">guest type</div></div><div class="cw"><canvas id="typeChart"></canvas></div></div>
+    </div>
+    <div class="card"><div class="ch"><div class="ct">Daily arrivals</div><div class="cs">last 30 days</div></div><div class="cw" style="height:200px"><canvas id="arrChart"></canvas></div></div>
+    <div class="card">
+      <div class="ct" style="margin-bottom:12px">Data quality</div>
+      <div style="font-size:13px;color:#5F5E5A;line-height:1.8">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>Email capture</span><strong style="color:#2C2C2A">${q.pct_email||0}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>Phone capture</span><strong style="color:#2C2C2A">${q.pct_phone||0}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>DOB capture</span><strong style="color:#2C2C2A">${q.pct_dob||0}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>ID/Passport on file</span><strong style="color:#2C2C2A">${q.pct_id||0}%</strong></div>
       </div>
+    </div>
+    <div class="card" id="insights-card">
+      <div class="ct" style="margin-bottom:12px">Key insights for action</div>
+      <div id="insights-body"></div>
     </div>`;
 
   // Render charts
@@ -253,6 +331,60 @@ async function renderDashboard(){
 
   const nKeys=Object.keys(nightsCounts).map(Number).sort((a,b)=>a-b);
   new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nKeys.map(n=>n+'n'),datasets:[{data:nKeys.map(n=>nightsCounts[n]),backgroundColor:'#9FE1CB',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
+
+  // Tourist vs Local donut
+  const typeCounts={tourist:0,local:0};
+  (typeRes.data||[]).forEach(g=>{if(g.guest_type==='tourist')typeCounts.tourist++;else if(g.guest_type==='local')typeCounts.local++;});
+  const totalType=typeCounts.tourist+typeCounts.local;
+  new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[typeCounts.tourist,typeCounts.local],backgroundColor:['#1D9E75','#AFA9EC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},generateLabels:(c)=>{const d=c.data;return d.labels.map((l,i)=>({text:l+' '+d.datasets[0].data[i]+(totalType?' ('+Math.round(d.datasets[0].data[i]/totalType*100)+'%)':''),fillStyle:d.datasets[0].backgroundColor[i],strokeStyle:d.datasets[0].backgroundColor[i],index:i}));}}}}}});
+
+  // Daily arrivals line chart
+  const arrCounts={};(arrRes.data||[]).forEach(s=>{if(s.arrival_date)arrCounts[s.arrival_date]=(arrCounts[s.arrival_date]||0)+1;});
+  const arrSorted=Object.entries(arrCounts).sort();
+  const arrLabels=arrSorted.map(([d])=>{const dt=new Date(d);return String(dt.getDate()).padStart(2,'0')+' '+MONTHS[dt.getMonth()];});
+  const arrVals=arrSorted.map(([,v])=>v);
+  new Chart(document.getElementById('arrChart'),{type:'line',data:{labels:arrLabels,datasets:[{data:arrVals,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.12)',fill:true,tension:0.3,pointBackgroundColor:'#1D9E75',pointRadius:4,pointHoverRadius:6,borderWidth:2.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10},maxRotation:0}}}}});
+
+  // Generate insights dynamically
+  generateInsights(s,q,sourceCounts,natCounts,typeCounts,nightsCounts);
+}
+
+function generateInsights(stats,quality,sources,nats,types,nightsDist){
+  const insights=[];
+  const totalStays=Object.values(sources).reduce((a,b)=>a+b,0);
+  const totalGuests=Object.values(nats).reduce((a,b)=>a+b,0);
+  if(totalStays>0){
+    const sortedSources=Object.entries(sources).sort((a,b)=>b[1]-a[1]);
+    const topSrc=sortedSources[0];
+    const topPct=Math.round(topSrc[1]/totalStays*100);
+    if(topPct>40){
+      insights.push({title:'Source concentration risk.',body:topPct+'% of stays come through one channel ('+srcShort(topSrc[0])+'). Diversifying source channels reduces risk.'});
+    }
+  }
+  if(totalGuests>0){
+    const sortedNats=Object.entries(nats).sort((a,b)=>b[1]-a[1]);
+    const topNat=sortedNats[0];
+    const topNatPct=Math.round(topNat[1]/totalGuests*100);
+    if(topNatPct>30){
+      insights.push({title:topNat[0]+' market dominance.',body:topNatPct+'% of guests are from '+topNat[0]+'. Consider language-specific content and culturally tailored welcome touches.'});
+    }
+  }
+  const totalNights=Object.values(nightsDist).reduce((a,b)=>a+b,0);
+  const longStays=Object.entries(nightsDist).filter(([n])=>+n>=7).reduce((a,[,v])=>a+v,0);
+  if(totalNights>0&&longStays/totalNights>0.3){
+    insights.push({title:'Long-stay loyalty opportunity.',body:Math.round(longStays/totalNights*100)+'% of stays are 7+ nights — these are your most engaged guests and the prime targets for win-back campaigns.'});
+  }
+  if(quality.pct_email<90){
+    insights.push({title:'Email gap.',body:'Only '+(quality.pct_email||0)+'% of guests have an email on file. Capturing missing emails at check-in is the single biggest lift to your marketing reach.'});
+  }
+  const directCount=Object.entries(sources).filter(([s])=>s&&(s.toUpperCase().includes('DIRECT'))).reduce((a,[,v])=>a+v,0);
+  if(totalStays>0){
+    const directPct=Math.round(directCount/totalStays*100);
+    if(directPct<25){
+      insights.push({title:'Direct booking upside.',body:'Only '+directPct+'% of bookings are direct vs 25–30% benchmark. The win-back campaign in your action plan targets this gap.'});
+    }
+  }
+  document.getElementById('insights-body').innerHTML=insights.length?insights.map(i=>'<div style="padding:10px 0;border-bottom:1px solid #E8E6E0;font-size:13px;color:#5F5E5A;line-height:1.7"><strong style="color:#2C2C2A;font-weight:500">'+i.title+'</strong> '+i.body+'</div>').join(''):'<div style="font-size:13px;color:#5F5E5A">More insights will appear as your data grows.</div>';
 }
 
 // ============================================================================
@@ -471,9 +603,26 @@ async function renderActionsPane(){
       <button class="nb" onclick="renderAction('upsell',this)">Upsell</button>
       <button class="nb" onclick="renderAction('birthday',this)">Birthdays</button>
       <button class="nb" onclick="renderAction('seasonal',this)">Seasonal</button>
+      <button class="nb" onclick="renderChecklist(this)">Checklist</button>
     </div>
     <div id="action-content"><div class="loading">Loading</div></div>`;
   renderAction('review_request');
+}
+
+function renderChecklist(btn){
+  if(btn){document.querySelectorAll('#action-nav .nb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');}
+  const el=document.getElementById('action-content');
+  let html='<div class="card">';
+  ['daily','weekly','monthly'].forEach((freq,fi)=>{
+    const label=freq==='daily'?'Daily (5 min)':freq==='weekly'?'Weekly (15 min)':'Monthly (30 min)';
+    html+='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5F5E5A;font-weight:500;margin:'+(fi===0?'0':'14px')+' 0 10px">'+label+'</div>';
+    CHECKLIST_DATA[freq].forEach((it,i)=>{
+      html+='<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-size:13px"><input type="checkbox" id="ck-'+freq+'-'+i+'" style="margin-top:3px;accent-color:#1D9E75;width:15px;height:15px;cursor:pointer"><label for="ck-'+freq+'-'+i+'" style="cursor:pointer;line-height:1.5;flex:1">'+it+'</label></div>';
+    });
+    if(fi<2)html+='<div style="height:1px;background:#E8E6E0;margin:12px 0"></div>';
+  });
+  html+='</div>';
+  el.innerHTML=html;
 }
 
 async function renderAction(key,btn){
