@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaani Hotels · CRM</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;background:#FAFAF7;color:#2C2C2A;line-height:1.5}
+.container{max-width:1280px;margin:0 auto;padding:20px}
+
+/* Login screen */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-box{background:#fff;border:1px solid #E8E6E0;border-radius:14px;padding:32px;max-width:400px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.04)}
+.login-box h1{font-size:22px;font-weight:500;margin-bottom:6px}
+.login-box h1 em{color:#1D9E75;font-style:normal}
+.login-box p{font-size:13px;color:#5F5E5A;margin-bottom:24px}
+.login-box input{width:100%;padding:11px 14px;font-size:14px;border-radius:8px;border:1px solid #E8E6E0;background:#fff;font-family:inherit;margin-bottom:10px}
+.login-box input:focus{outline:none;border-color:#1D9E75}
+.login-box button{width:100%;padding:11px;font-size:14px;border-radius:8px;border:none;background:#1D9E75;color:#fff;font-weight:500;cursor:pointer;margin-top:8px}
+.login-box button:hover{background:#0F6E56}
+.login-msg{font-size:13px;margin-top:14px;text-align:center;min-height:18px}
+.login-msg.error{color:#A32D2D}
+.login-msg.success{color:#0F6E56}
+
+/* Main app layout */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;padding-bottom:14px;border-bottom:1px solid #E8E6E0}
+.logo{font-size:18px;font-weight:500}.logo em{color:#1D9E75;font-style:normal}
+.subtitle{font-size:12px;color:#5F5E5A;margin-top:2px}
+.user-info{font-size:12px;color:#5F5E5A;display:flex;gap:10px;align-items:center}
+.user-info button{padding:5px 11px;font-size:12px;border-radius:6px;border:1px solid #E8E6E0;background:#fff;cursor:pointer;color:#5F5E5A}
+.user-info button:hover{background:#F1EFE8}
+
+.nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:18px}
+.nb{padding:7px 14px;font-size:13px;border-radius:8px;border:1px solid #E8E6E0;background:#fff;color:#5F5E5A;cursor:pointer;font-family:inherit;white-space:nowrap}
+.nb:hover{border-color:#B4B2A9}
+.nb.on{background:#1D9E75;color:#fff;border-color:#1D9E75;font-weight:500}
+
+.pane{display:none}.pane.on{display:block}
+
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px}
+.sm{background:#fff;border:1px solid #E8E6E0;border-radius:10px;padding:13px 15px}
+.sl{font-size:11px;color:#5F5E5A;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;font-weight:500}
+.sv{font-size:22px;font-weight:500;color:#2C2C2A;line-height:1}
+.ss{font-size:11px;color:#5F5E5A;margin-top:4px}
+
+.card{background:#fff;border:1px solid #E8E6E0;border-radius:12px;padding:16px 18px;margin-bottom:12px}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.ct{font-size:14px;font-weight:500}
+.cd{font-size:13px;color:#5F5E5A;line-height:1.6;margin-bottom:12px}
+.cs{font-size:11px;color:#5F5E5A;font-weight:400}
+
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:12px}
+
+.badge{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:500;white-space:nowrap;display:inline-block}
+.bu{background:#FCEBEB;color:#A32D2D}.bh{background:#FAEEDA;color:#633806}
+.bm{background:#E6F1FB;color:#185FA5}.be{background:#E1F5EE;color:#0F6E56}
+.bl{background:#EEEDFE;color:#3C3489}.bg{background:#F1EFE8;color:#5F5E5A}
+
+.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #E8E6E0;font-size:13px}
+.row:last-child{border-bottom:none}
+.rn{flex:1;min-width:0;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd{color:#5F5E5A;font-size:11px;white-space:nowrap}
+.av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+
+.btn{padding:8px 14px;font-size:13px;border-radius:8px;border:1px solid #B4B2A9;background:#fff;cursor:pointer;color:#2C2C2A;font-family:inherit}
+.btn:hover{background:#F1EFE8}
+.btnp{background:#1D9E75;color:#fff;border-color:#1D9E75;font-weight:500}
+.btnp:hover{background:#0F6E56}
+.btn.done{background:#E1F5EE;color:#0F6E56;border-color:#5DCAA5}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+.tpl{background:#FAFAF7;border:1px solid #E8E6E0;border-radius:8px;padding:12px 14px;font-size:13px;color:#444441;line-height:1.7;margin:12px 0;white-space:pre-wrap;font-family:inherit}
+.tpl-edit{width:100%;min-height:200px;padding:12px 14px;font-size:13px;border:1px solid #E8E6E0;border-radius:8px;background:#fff;font-family:inherit;line-height:1.7;resize:vertical}
+
+.divider{height:1px;background:#E8E6E0;margin:14px 0}
+.sec{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5F5E5A;font-weight:500;margin-bottom:10px}
+
+.gcard{background:#fff;border:1px solid #E8E6E0;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer}
+.gcard:hover{border-color:#B4B2A9}
+
+.toolbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.toolbar input,.toolbar select{padding:7px 12px;font-size:13px;border-radius:8px;border:1px solid #E8E6E0;background:#fff;font-family:inherit}
+.toolbar input{flex:1;min-width:160px}
+.toolbar input:focus,.toolbar select:focus{outline:none;border-color:#1D9E75}
+
+.panel-wrap{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;justify-content:flex-end;z-index:300}
+.panel{width:430px;max-width:100%;background:#fff;height:100%;overflow-y:auto;padding:20px}
+.pc{float:right;background:none;border:none;font-size:18px;cursor:pointer;color:#5F5E5A}
+.pav{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:500;margin-bottom:10px}
+.pn{font-size:17px;font-weight:500;margin-bottom:2px}
+.ps{font-size:13px;color:#5F5E5A;margin-bottom:14px}
+.dr{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #E8E6E0;font-size:13px}
+.dr:last-child{border-bottom:none}
+.dk{color:#5F5E5A}.dv{color:#2C2C2A;font-weight:500;text-align:right;max-width:55%;word-break:break-word}
+.dv.dob{color:#0F6E56}
+
+.izone{border:2px dashed #B4B2A9;border-radius:12px;padding:32px;text-align:center;color:#5F5E5A;font-size:14px;background:#fff}
+.izone label{cursor:pointer;color:#1D9E75;font-weight:500;text-decoration:underline}
+
+.cw{position:relative;width:100%;height:230px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:12px;color:#5F5E5A}
+.legend span{display:flex;align-items:center;gap:6px}
+.ld{width:11px;height:11px;border-radius:2px;flex-shrink:0}
+
+.kpi{padding:14px 16px;border-radius:10px;background:#fff;border:1px solid #E8E6E0}
+.kpi-bar{height:5px;background:#F1EFE8;border-radius:3px;overflow:hidden;margin-top:10px}
+.kpi-fill{height:100%;border-radius:3px}
+
+.tag-pill{display:inline-block;font-size:11px;padding:3px 9px;border-radius:20px;background:#E1F5EE;color:#0F6E56;margin:3px 4px 3px 0}
+.tag-pill .x{cursor:pointer;opacity:0.6;margin-left:4px}
+
+.empty{text-align:center;padding:32px;color:#5F5E5A;font-size:13px}
+.loading{text-align:center;padding:40px;color:#5F5E5A;font-size:13px}
+.loading::after{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#1D9E75;margin-left:6px;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}
+
+.toast{position:fixed;bottom:20px;right:20px;padding:12px 18px;background:#1D9E75;color:#fff;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);font-size:13px;z-index:500;animation:slideIn 0.2s ease-out}
+.toast.error{background:#A32D2D}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+.insight-item{padding:10px 0;border-bottom:1px solid #E8E6E0;font-size:13px;color:#5F5E5A;line-height:1.7}
+.insight-item:last-child{border-bottom:none}
+.insight-item strong{color:#2C2C2A;font-weight:500}
+
+.pagination{display:flex;gap:6px;justify-content:center;margin-top:14px}
+.pagination button{padding:6px 11px;font-size:12px;border-radius:6px;border:1px solid #E8E6E0;background:#fff;cursor:pointer}
+.pagination button:hover{background:#F1EFE8}
+.pagination button:disabled{opacity:0.4;cursor:not-allowed}
+.pagination button.on{background:#1D9E75;color:#fff;border-color:#1D9E75}
+
+@media (max-width:600px){
+  .container{padding:14px}
+  .nb{padding:6px 11px;font-size:12px}
+  .panel{width:100%}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="login-wrap">
+  <div class="login-box">
+    <h1>Kaani <em>Hotels</em> · CRM</h1>
+    <p>Sign in to access the customer database</p>
+    <input type="email" id="login-email" placeholder="Email" autocomplete="username"/>
+    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password"/>
+    <button onclick="doLogin()">Sign in</button>
+    <div class="login-msg" id="login-msg"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="container" style="display:none">
+  <div class="topbar">
+    <div>
+      <div class="logo">Kaani <em>Hotels</em> · CRM</div>
+      <div class="subtitle" id="app-subtitle">Loading…</div>
+    </div>
+    <div class="user-info">
+      <span id="user-display"></span>
+      <button onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button class="nb on" onclick="sw('overview',this)">Overview</button>
+    <button class="nb" onclick="sw('dashboard',this)">Dashboard</button>
+    <button class="nb" onclick="sw('guests',this)">Guests</button>
+    <button class="nb" onclick="sw('actions',this)">Actions</button>
+    <button class="nb" onclick="sw('marketing',this)">Marketing</button>
+    <button class="nb" onclick="sw('templates',this)">Templates</button>
+    <button class="nb" onclick="sw('reports',this)">Reports</button>
+    <button class="nb" onclick="sw('import',this)">Import</button>
+    <button class="nb" onclick="sw('admin',this)" id="admin-tab" style="display:none">Admin</button>
+  </div>
+
+  <div id="pane-overview" class="pane on"><div class="loading">Loading overview</div></div>
+  <div id="pane-dashboard" class="pane"></div>
+  <div id="pane-guests" class="pane"></div>
+  <div id="pane-actions" class="pane"></div>
+  <div id="pane-marketing" class="pane"></div>
+  <div id="pane-templates" class="pane"></div>
+  <div id="pane-reports" class="pane"></div>
+  <div id="pane-import" class="pane"></div>
+  <div id="pane-admin" class="pane"></div>
+</div>
+
+<div id="sp" style="display:none"></div>
+<div id="toast-area"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
