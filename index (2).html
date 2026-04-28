@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaani Hotels · CRM</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700;800&display=swap');
+
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --kaani-orange:#F47923;
+  --kaani-orange-hover:#D9651A;
+  --kaani-peach:#FBD7BC;
+  --kaani-peach-soft:#FDE8D5;
+  --kaani-cream:#FFF8F2;
+  --kaani-cream-deep:#FBEFE2;
+  --black:#0E0E0E;
+  --black-soft:#2C2C2A;
+  --gray-text:#5C5852;
+  --gray-muted:#9A9590;
+  --line:#0E0E0E;
+  --line-peach:#FBD7BC;
+  --border-subtle:#EFE6D8;
+  --success:#1D9E75;
+  --success-bg:#E1F5EE;
+  --info:#2C7AB5;
+  --info-bg:#E1EEF9;
+  --warning:#BA7517;
+  --warning-bg:#FAEEDA;
+  --danger:#A32D2D;
+  --danger-bg:#FCEBEB;
+}
+
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-size:14px;
+  background:var(--kaani-cream);
+  color:var(--black-soft);
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.container{max-width:1320px;margin:0 auto;padding:24px}
+
+/* Display typography for headers */
+h1,h2,h3,.display{font-family:'Inter Tight',sans-serif;font-weight:700;letter-spacing:-0.025em;color:var(--black)}
+
+/* ============== LOGIN SCREEN ============== */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--kaani-cream)}
+.login-box{background:var(--kaani-cream);max-width:440px;width:100%;text-align:center;padding:20px}
+.login-logo{display:block;width:120px;margin:0 auto 36px}
+.login-box h1{font-family:'Inter Tight',sans-serif;font-size:42px;font-weight:800;line-height:1;color:var(--black);margin-bottom:12px;letter-spacing:-0.04em;text-align:left}
+.login-box p{font-size:14px;color:var(--gray-text);margin-bottom:32px;text-align:left}
+.login-box input{width:100%;padding:14px 16px;font-size:14px;border-radius:12px;border:1px solid var(--border-subtle);background:#fff;font-family:'Inter',sans-serif;margin-bottom:10px;color:var(--black)}
+.login-box input:focus{outline:none;border-color:var(--kaani-orange);box-shadow:0 0 0 3px var(--kaani-peach-soft)}
+.login-box button{width:100%;padding:14px;font-size:14px;border-radius:999px;border:none;background:var(--kaani-orange);color:#fff;font-weight:600;cursor:pointer;margin-top:12px;font-family:'Inter',sans-serif;letter-spacing:0.01em}
+.login-box button:hover{background:var(--kaani-orange-hover)}
+.login-msg{font-size:13px;margin-top:18px;text-align:center;min-height:18px}
+.login-msg.error{color:var(--danger)}
+.login-msg.success{color:var(--success)}
+
+/* ============== TOP BAR ============== */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;flex-wrap:wrap;gap:14px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.topbar-left{display:flex;align-items:center;gap:18px}
+.topbar-logo{height:42px;width:auto}
+.topbar-title{font-family:'Inter Tight',sans-serif;font-size:22px;font-weight:700;color:var(--black);letter-spacing:-0.02em;line-height:1}
+.subtitle{font-size:12px;color:var(--gray-text);margin-top:4px;font-weight:500}
+.user-info{font-size:12px;color:var(--gray-text);display:flex;gap:12px;align-items:center}
+.user-info button{padding:8px 14px;font-size:12px;border-radius:999px;border:1px solid var(--line);background:transparent;cursor:pointer;color:var(--black);font-family:inherit;font-weight:500}
+.user-info button:hover{background:var(--black);color:var(--kaani-cream)}
+
+/* ============== NAVIGATION ============== */
+.nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--line-peach)}
+.nb{padding:8px 16px;font-size:13px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--gray-text);cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;font-weight:500;transition:all 0.15s}
+.nb:hover{color:var(--black);background:var(--kaani-peach-soft)}
+.nb.on{background:var(--black);color:var(--kaani-cream);border-color:var(--black)}
+.nb.on:hover{background:var(--black);color:var(--kaani-cream)}
+
+.pane{display:none}.pane.on{display:block}
+
+/* ============== STATS CARDS ============== */
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;margin-bottom:32px;background:var(--line-peach);border:1px solid var(--line-peach);border-radius:14px;overflow:hidden}
+.sm{background:var(--kaani-cream);padding:18px 20px;transition:background 0.15s}
+.sm:hover{background:var(--kaani-cream-deep)}
+.sl{font-size:11px;color:var(--gray-text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;font-weight:600}
+.sv{font-family:'Inter Tight',sans-serif;font-size:32px;font-weight:700;color:var(--black);line-height:1;letter-spacing:-0.03em}
+.ss{font-size:11px;color:var(--gray-muted);margin-top:6px;font-weight:500}
+
+/* ============== CARDS ============== */
+.card{background:var(--kaani-cream);border:1px solid var(--line-peach);border-radius:14px;padding:22px 24px;margin-bottom:14px}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line-peach)}
+.ct{font-family:'Inter Tight',sans-serif;font-size:18px;font-weight:700;color:var(--black);letter-spacing:-0.02em}
+.cd{font-size:13px;color:var(--gray-text);line-height:1.6;margin-bottom:14px}
+.cs{font-size:11px;color:var(--gray-muted);font-weight:500;text-transform:uppercase;letter-spacing:0.06em}
+
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px}
+
+/* ============== BADGES ============== */
+.badge{font-size:10px;padding:4px 10px;border-radius:999px;font-weight:600;white-space:nowrap;display:inline-block;text-transform:uppercase;letter-spacing:0.05em}
+.bu{background:var(--danger-bg);color:var(--danger)}
+.bh{background:var(--warning-bg);color:var(--warning)}
+.bm{background:var(--info-bg);color:var(--info)}
+.be{background:var(--success-bg);color:var(--success)}
+.bl{background:var(--kaani-peach);color:var(--black)}
+.bg{background:var(--kaani-cream-deep);color:var(--gray-text)}
+
+/* ============== ROWS ============== */
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line-peach);font-size:13px}
+.row:last-child{border-bottom:none}
+.rn{flex:1;min-width:0;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--black)}
+.rd{color:var(--gray-text);font-size:11px;white-space:nowrap;font-weight:500}
+.av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;letter-spacing:0.02em;background:var(--kaani-peach)!important;color:var(--black)!important}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ============== BUTTONS ============== */
+.btn{padding:10px 18px;font-size:13px;border-radius:999px;border:1px solid var(--line);background:transparent;cursor:pointer;color:var(--black);font-family:'Inter',sans-serif;font-weight:500;transition:all 0.15s}
+.btn:hover{background:var(--black);color:var(--kaani-cream)}
+.btnp{background:var(--kaani-orange);color:#fff;border-color:var(--kaani-orange);font-weight:600}
+.btnp:hover{background:var(--kaani-orange-hover);color:#fff;border-color:var(--kaani-orange-hover)}
+.btn.done{background:var(--success-bg);color:var(--success);border-color:var(--success)}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+
+/* ============== TEMPLATES ============== */
+.tpl{background:var(--kaani-cream-deep);border:1px solid var(--line-peach);border-radius:12px;padding:18px 20px;font-size:13px;color:var(--black-soft);line-height:1.7;margin:14px 0;white-space:pre-wrap;font-family:'Inter',sans-serif}
+.tpl-edit{width:100%;min-height:220px;padding:16px;font-size:13px;border:1px solid var(--border-subtle);border-radius:12px;background:#fff;font-family:'Inter',sans-serif;line-height:1.7;resize:vertical;color:var(--black)}
+.tpl-edit:focus{outline:none;border-color:var(--kaani-orange);box-shadow:0 0 0 3px var(--kaani-peach-soft)}
+
+.divider{height:1px;background:var(--line-peach);margin:18px 0}
+.sec{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-text);font-weight:600;margin-bottom:12px}
+
+/* ============== GUEST CARDS ============== */
+.gcard{background:var(--kaani-cream);border:1px solid var(--line-peach);border-radius:14px;padding:14px 16px;margin-bottom:8px;cursor:pointer;transition:all 0.15s}
+.gcard:hover{border-color:var(--kaani-orange);background:var(--kaani-cream-deep)}
+
+/* ============== TOOLBAR ============== */
+.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.toolbar input,.toolbar select{padding:10px 14px;font-size:13px;border-radius:999px;border:1px solid var(--border-subtle);background:#fff;font-family:'Inter',sans-serif;color:var(--black)}
+.toolbar input{flex:1;min-width:180px}
+.toolbar input:focus,.toolbar select:focus{outline:none;border-color:var(--kaani-orange);box-shadow:0 0 0 3px var(--kaani-peach-soft)}
+
+/* ============== SIDE PANEL ============== */
+.panel-wrap{position:fixed;inset:0;background:rgba(14,14,14,0.5);display:flex;justify-content:flex-end;z-index:300}
+.panel{width:440px;max-width:100%;background:var(--kaani-cream);height:100%;overflow-y:auto;padding:28px 26px;border-left:1px solid var(--line)}
+.pc{float:right;background:none;border:none;font-size:18px;cursor:pointer;color:var(--gray-text);padding:6px 10px;border-radius:50%}
+.pc:hover{background:var(--kaani-cream-deep);color:var(--black)}
+.pav{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;margin-bottom:14px;background:var(--kaani-peach)!important;color:var(--black)!important}
+.pn{font-family:'Inter Tight',sans-serif;font-size:24px;font-weight:700;margin-bottom:4px;color:var(--black);letter-spacing:-0.02em;line-height:1.1}
+.ps{font-size:13px;color:var(--gray-text);margin-bottom:20px;font-weight:500}
+.dr{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-peach);font-size:13px}
+.dr:last-child{border-bottom:none}
+.dk{color:var(--gray-text)}.dv{color:var(--black);font-weight:500;text-align:right;max-width:55%;word-break:break-word}
+.dv.dob{color:var(--success)}
+
+/* ============== IMPORT ZONE ============== */
+.izone{border:2px dashed var(--kaani-peach);border-radius:14px;padding:48px 24px;text-align:center;color:var(--gray-text);font-size:14px;background:var(--kaani-cream-deep);transition:all 0.15s}
+.izone:hover{border-color:var(--kaani-orange)}
+.izone label{cursor:pointer;color:var(--kaani-orange);font-weight:600;text-decoration:underline}
+
+/* ============== CHARTS ============== */
+.cw{position:relative;width:100%;height:240px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12px;color:var(--gray-text);font-weight:500}
+.legend span{display:flex;align-items:center;gap:7px}
+.ld{width:11px;height:11px;border-radius:3px;flex-shrink:0}
+
+/* ============== KPI ============== */
+.kpi{padding:18px 20px;border-radius:0;background:var(--kaani-cream)}
+.kpi .sl{font-size:11px;color:var(--gray-text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;font-weight:600}
+.kpi .sv{font-family:'Inter Tight',sans-serif;font-size:32px;font-weight:700;color:var(--black);line-height:1;letter-spacing:-0.03em}
+.kpi-bar{height:4px;background:var(--line-peach);border-radius:0;overflow:hidden;margin-top:12px}
+.kpi-fill{height:100%;border-radius:0;transition:width 0.4s}
+
+/* ============== TAGS ============== */
+.tag-pill{display:inline-block;font-size:11px;padding:4px 11px;border-radius:999px;background:var(--kaani-peach);color:var(--black);margin:3px 4px 3px 0;font-weight:500;text-transform:uppercase;letter-spacing:0.04em}
+.tag-pill .x{cursor:pointer;opacity:0.5;margin-left:6px}
+.tag-pill .x:hover{opacity:1}
+
+.empty{text-align:center;padding:40px;color:var(--gray-text);font-size:13px}
+.loading{text-align:center;padding:48px;color:var(--gray-text);font-size:13px}
+.loading::after{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--kaani-orange);margin-left:8px;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}
+
+.toast{position:fixed;bottom:24px;right:24px;padding:14px 22px;background:var(--black);color:var(--kaani-cream);border-radius:999px;box-shadow:0 10px 28px rgba(14,14,14,0.2);font-size:13px;z-index:500;animation:slideIn 0.2s ease-out;font-weight:500}
+.toast.error{background:var(--danger)}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+.insight-item{padding:14px 0;border-bottom:1px solid var(--line-peach);font-size:13px;color:var(--gray-text);line-height:1.7}
+.insight-item:last-child{border-bottom:none}
+.insight-item strong{color:var(--black);font-weight:600;font-family:'Inter',sans-serif}
+
+.pagination{display:flex;gap:6px;justify-content:center;margin-top:18px}
+.pagination button{padding:7px 14px;font-size:12px;border-radius:999px;border:1px solid var(--line-peach);background:transparent;cursor:pointer;color:var(--black);font-family:'Inter',sans-serif;font-weight:500}
+.pagination button:hover{background:var(--kaani-peach-soft)}
+.pagination button:disabled{opacity:0.4;cursor:not-allowed}
+.pagination button.on{background:var(--black);color:var(--kaani-cream);border-color:var(--black)}
+
+@media (max-width:600px){
+  .container{padding:16px}
+  .nb{padding:7px 13px;font-size:12px}
+  .panel{width:100%;padding:20px}
+  .topbar-logo{height:36px}
+  .topbar-title{font-size:18px}
+  .login-box h1{font-size:34px}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="login-wrap">
+  <div class="login-box">
+    <img src="https://kaanihotels.com/logo.svg" alt="Kaani Hotels" class="login-logo"/>
+    <h1>Customer <em>Relationship</em> Management</h1>
+    <p>Sign in to access the guest database</p>
+    <input type="email" id="login-email" placeholder="Email" autocomplete="username"/>
+    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password"/>
+    <button onclick="doLogin()">Sign in</button>
+    <div class="login-msg" id="login-msg"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="container" style="display:none">
+  <div class="topbar">
+    <div class="topbar-left">
+      <img src="https://kaanihotels.com/logo.svg" alt="Kaani Hotels" class="topbar-logo"/>
+      <div>
+        <div class="topbar-title">CRM</div>
+        <div class="subtitle" id="app-subtitle">Loading…</div>
+      </div>
+    </div>
+    <div class="user-info">
+      <span id="user-display"></span>
+      <button onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button class="nb on" onclick="sw('overview',this)">Overview</button>
+    <button class="nb" onclick="sw('dashboard',this)">Dashboard</button>
+    <button class="nb" onclick="sw('guests',this)">Guests</button>
+    <button class="nb" onclick="sw('actions',this)">Actions</button>
+    <button class="nb" onclick="sw('marketing',this)">Marketing</button>
+    <button class="nb" onclick="sw('templates',this)">Templates</button>
+    <button class="nb" onclick="sw('reports',this)">Reports</button>
+    <button class="nb" onclick="sw('plan',this)">Plan</button>
+    <button class="nb" onclick="sw('import',this)">Import</button>
+    <button class="nb" onclick="sw('admin',this)" id="admin-tab" style="display:none">Admin</button>
+  </div>
+
+  <div id="pane-overview" class="pane on"><div class="loading">Loading overview</div></div>
+  <div id="pane-dashboard" class="pane"></div>
+  <div id="pane-guests" class="pane"></div>
+  <div id="pane-actions" class="pane"></div>
+  <div id="pane-marketing" class="pane"></div>
+  <div id="pane-templates" class="pane"></div>
+  <div id="pane-reports" class="pane"></div>
+  <div id="pane-plan" class="pane"></div>
+  <div id="pane-import" class="pane"></div>
+  <div id="pane-admin" class="pane"></div>
+</div>
+
+<div id="sp" style="display:none"></div>
+<div id="toast-area"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
