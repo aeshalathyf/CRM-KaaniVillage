@@ -331,324 +331,191 @@ async function renderOverview(){
   const el=document.getElementById('pane-overview');
   el.innerHTML='<div class="loading">Loading</div>';
 
-  let inhouseQuery = sb.from('stays').select('*,guests(*),properties(name)').in('status',['checked_in','stayover']).order('arrival_date',{ascending:false}).limit(8);
-  let coQuery = sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false}).limit(5);
-  if(STATE.selectedPropertyId !== 'all'){
-    inhouseQuery = inhouseQuery.eq('property_id', STATE.selectedPropertyId);
-    coQuery = coQuery.eq('property_id', STATE.selectedPropertyId);
+  if(!STATE.properties || STATE.properties.length === 0){
+    await loadInitialData();
+    setupPropertyAccess();
   }
-  const guestIdsForProp = await getGuestIdsForProperty();
-  const[statsRes,inhouseRes,bdayRes,recentCheckoutRes]=await Promise.all([
-    computePropertyStats(),
-    inhouseQuery,
-    Promise.resolve(null),
-    coQuery
+
+  const propIds = STATE.selectedPropertyId !== null
+    ? [STATE.selectedPropertyId]
+    : (STATE.accessibleProperties.length > 0 ? STATE.accessibleProperties : STATE.properties).map(p=>p.id);
+
+  if(!propIds || propIds.length === 0){
+    el.innerHTML='<div class="empty">No properties accessible.</div>';
+    return;
+  }
+
+  const[stayStatsRes, guestStatsRes, inhouseRes, recentCheckoutRes] = await Promise.all([
+    sb.from('stays').select('id,status,channel_type,net_revenue_usd,guest_id').in('property_id', propIds),
+    sb.from('guests').select('id,full_name,email,date_of_birth,lead_status'),
+    sb.from('stays').select('*,guests(*),properties(name)').in('property_id', propIds).in('status',['checked_in','stayover']).order('arrival_date',{ascending:false}).limit(8),
+    sb.from('stays').select('*,guests(*),properties(name)').in('property_id', propIds).eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false}).limit(5)
   ]);
 
-  async function computePropertyStats(){
-    if(STATE.selectedPropertyId === 'all'){
-      return await sb.from('v_dashboard_stats').select('*').single();
-    }
-    // Compute stats for the specific property
-    const propStays = await sb.from('stays').select('*,guests(email,date_of_birth)').eq('property_id', STATE.selectedPropertyId);
-    const stays = propStays.data || [];
-    const uniqueGuests = new Set(stays.map(s => s.guest_id));
-    const inHouse = stays.filter(s => ['checked_in','stayover'].includes(s.status)).length;
-    const direct = stays.filter(s => s.channel_type === 'direct').length;
-    const repeat = await sb.from('guests').select('id').in('id', [...uniqueGuests]).in('lead_status',['repeat','vip']);
-    const totalRev = stays.reduce((a,s) => a + (parseFloat(s.net_revenue_usd) || 0), 0);
-    return {data: {
-      total_guests: uniqueGuests.size,
-      in_house: inHouse,
-      repeat_guests: (repeat.data || []).length,
-      direct_bookings: direct,
-      total_stays: stays.length,
-      total_net_revenue: totalRev
-    }};
-  }
+  const propStays = stayStatsRes.data || [];
+  const guestIds = new Set(propStays.map(s=>s.guest_id));
+  const allGuests = guestStatsRes.data || [];
+  const propGuests = allGuests.filter(g=>guestIds.has(g.id));
 
-  // Build stats from property-filtered data
-  const propStays=stayStatsRes.data||[];
-  const guestIds=new Set(propStays.map(s=>s.guest_id));
-  const allGuests=guestStatsRes.data||[];
-  const propGuests=allGuests.filter(g=>guestIds.has(g.id));
-
-  const stats={
-    total_guests:propGuests.length,
-    in_house:propStays.filter(s=>['checked_in','stayover'].includes(s.status)).length,
-    repeat_guests:propGuests.filter(g=>['repeat','vip'].includes(g.lead_status)).length,
-    direct_bookings:propStays.filter(s=>s.channel_type==='direct').length,
-    total_stays:propStays.length,
-    total_net_revenue:propStays.reduce((a,s)=>a+(parseFloat(s.net_revenue_usd)||0),0)
+  const stats = {
+    total_guests: propGuests.length,
+    in_house: propStays.filter(s=>['checked_in','stayover'].includes(s.status)).length,
+    repeat_guests: propGuests.filter(g=>['repeat','vip'].includes(g.lead_status)).length,
+    direct_bookings: propStays.filter(s=>s.channel_type==='direct').length,
+    total_stays: propStays.length,
+    total_net_revenue: propStays.reduce((a,s)=>a+(parseFloat(s.net_revenue_usd)||0),0)
   };
 
-  // Birthday fallback if RPC doesn't exist
-  let birthdays=[];
-  if(bdayRes&&bdayRes.data){
-    birthdays=bdayRes.data;
-  }else{
-    let bdQ = sb.from('guests').select('id,full_name,email,date_of_birth').not('date_of_birth','is',null).not('email','is',null).limit(500);
-    if(guestIdsForProp){
-      if(guestIdsForProp.length === 0){ birthdays = []; }
-      else { bdQ = bdQ.in('id', guestIdsForProp); }
-    }
-    if(!guestIdsForProp || guestIdsForProp.length > 0){
-      const{data:bd}=await bdQ;
-      birthdays=(bd||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
-    }
-  }
+  const bdGuests = propGuests.filter(g=>g.email && g.date_of_birth);
+  const birthdays = bdGuests.filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
+  const scopeLabel = STATE.selectedPropertyId ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property') : 'All Properties';
+  const inhouse = inhouseRes.data || [];
+  const recentCo = recentCheckoutRes.data || [];
 
-  let html=`
+  el.innerHTML=`
     <div class="sg">
-      <div class="sm"><div class="sl">Total guests</div><div class="sv">${(stats.total_guests||0).toLocaleString()}</div></div>
-      <div class="sm"><div class="sl">In-house</div><div class="sv">${stats.in_house||0}</div></div>
-      <div class="sm"><div class="sl">Repeat guests</div><div class="sv">${stats.repeat_guests||0}</div></div>
-      <div class="sm"><div class="sl">Direct bookings</div><div class="sv">${stats.direct_bookings||0}</div></div>
-      <div class="sm"><div class="sl">Total stays</div><div class="sv">${(stats.total_stays||0).toLocaleString()}</div></div>
-      <div class="sm"><div class="sl">Net revenue</div><div class="sv">$${Math.round(stats.total_net_revenue||0).toLocaleString()}</div></div>
+      <div class="sm"><div class="sl">Total guests</div><div class="sv">${stats.total_guests.toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div></div>
+      <div class="sm"><div class="sl">In-house</div><div class="sv">${stats.in_house}</div></div>
+      <div class="sm"><div class="sl">Repeat guests</div><div class="sv">${stats.repeat_guests}</div></div>
+      <div class="sm"><div class="sl">Direct bookings</div><div class="sv">${stats.direct_bookings}</div></div>
+      <div class="sm"><div class="sl">Total stays</div><div class="sv">${stats.total_stays.toLocaleString()}</div></div>
+      <div class="sm"><div class="sl">Net revenue</div><div class="sv">$${Math.round(stats.total_net_revenue).toLocaleString()}</div></div>
     </div>
     <div class="g2">
-      <div class="card">
-        <div class="ct" style="margin-bottom:12px">Today's urgent actions</div>
-        <div id="ov-alerts"></div>
-      </div>
-      <div class="card">
-        <div class="ct" style="margin-bottom:12px">Upcoming birthdays (30 days)</div>
-        <div id="ov-bdays"></div>
-      </div>
+      <div class="card"><div class="ct" style="margin-bottom:12px">Today's urgent actions</div><div id="ov-alerts"></div></div>
+      <div class="card"><div class="ct" style="margin-bottom:12px">Upcoming birthdays (30 days)</div><div id="ov-bdays"></div></div>
     </div>
-    <div class="card">
-      <div class="ct" style="margin-bottom:12px">Current in-house guests</div>
-      <div id="ov-inhouse"></div>
-    </div>`;
-  el.innerHTML=html;
+    <div class="card"><div class="ct" style="margin-bottom:12px">Current in-house · ${escapeHtml(scopeLabel)}</div><div id="ov-inhouse"></div></div>`;
 
-  // Alerts
-  const recentCo=recentCheckoutRes.data||[];
-  const inhouse=inhouseRes.data||[];
   const items=[];
-  recentCo.slice(0,3).forEach(s=>{if(s.guests?.email)items.push({dot:'#A32D2D',txt:fn(s.guests.full_name)+' — send review request',sub:`Checked out ${fmtDate(s.departure_date)}`});});
-  inhouse.filter(s=>s.nights>=3&&s.guests?.email).slice(0,2).forEach(s=>items.push({dot:'#1D9E75',txt:fn(s.guests.full_name)+' — upsell excursions',sub:`Stayover until ${fmtDate(s.departure_date)}`}));
-  document.getElementById('ov-alerts').innerHTML=items.length?items.map(it=>`<div class="row"><div class="dot" style="background:${it.dot}"></div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(it.txt)}</div><div style="font-size:11px;color:#5F5E5A">${escapeHtml(it.sub)}</div></div></div>`).join(''):'<div class="empty">No urgent actions.</div>';
-
-  // Birthdays
-  document.getElementById('ov-bdays').innerHTML=birthdays.length?birthdays.slice(0,5).map(g=>{const d=bdayDays(g.date_of_birth);const color=d<=3?'#A32D2D':d<=7?'#BA7517':'#1D9E75';return`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(fn(g.full_name))}</div><div style="font-size:11px;color:#5F5E5A">${escapeHtml(g.email||'')}</div></div><div class="rd" style="color:${color};font-weight:500">in ${d}d</div></div>`;}).join(''):'<div class="empty">No birthdays in next 30 days.</div>';
-
-  // In-house
-  document.getElementById('ov-inhouse').innerHTML=inhouse.length?inhouse.map(s=>{const g=s.guests;const[bg,fg]=avc(g?.full_name||'');const stCls=s.status==='stayover'?'bm':s.status==='checked_in'?'be':'bg';return`<div class="row"><div class="av" style="background:${bg};color:${fg}">${ini(g?.full_name||'?')}</div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(g?.full_name||'')}</div><div style="font-size:11px;color:#5F5E5A">${escapeHtml(g?.nationality||'')} · ${escapeHtml(s.room_number||'')} · until ${fmtDate(s.departure_date)}</div></div><span class="badge ${stCls}">${s.status.replace('_',' ')}</span></div>`;}).join(''):'<div class="empty">No in-house guests.</div>';
+  recentCo.slice(0,3).forEach(s=>{if(s.guests?.email)items.push({dot:'#A32D2D',txt:fn(s.guests.full_name)+' — send review request',sub:'Checked out '+fmtDate(s.departure_date)+' · '+(s.properties?.name||'')});});
+  inhouse.filter(s=>s.nights>=3&&s.guests?.email).slice(0,2).forEach(s=>items.push({dot:'var(--kaani-orange)',txt:fn(s.guests.full_name)+' — upsell excursions',sub:'Stayover until '+fmtDate(s.departure_date)}));
+  document.getElementById('ov-alerts').innerHTML=items.length?items.map(it=>`<div class="row"><div class="dot" style="background:${it.dot}"></div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(it.txt)}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(it.sub)}</div></div></div>`).join(''):'<div class="empty">No urgent actions.</div>';
+  document.getElementById('ov-bdays').innerHTML=birthdays.length?birthdays.slice(0,5).map(g=>{const d=bdayDays(g.date_of_birth);return`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(fn(g.full_name||''))}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(g.email||'')}</div></div><div class="rd" style="color:${d<=3?'var(--danger)':d<=7?'var(--warning)':'var(--success)'};font-weight:600">in ${d}d</div></div>`;}).join(''):'<div class="empty">No birthdays in next 30 days.</div>';
+  document.getElementById('ov-inhouse').innerHTML=inhouse.length?inhouse.map(s=>{const g=s.guests;const stCls=s.status==='stayover'?'bm':s.status==='checked_in'?'be':'bg';return`<div class="row"><div class="av">${ini(g?.full_name||'?')}</div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(g?.full_name||'')}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(g?.nationality||'')} · ${escapeHtml(s.room_number||'')} · until ${fmtDate(s.departure_date)} · ${escapeHtml(s.properties?.name||'')}</div></div><span class="badge ${stCls}">${s.status.replace('_',' ')}</span></div>`;}).join(''):'<div class="empty">No in-house guests.</div>';
 }
 
-// ============================================================================
-// DASHBOARD
-// ============================================================================
 async function renderDashboard(){
   const el=document.getElementById('pane-dashboard');
   el.innerHTML='<div class="loading">Loading dashboard</div>';
 
-  const guestIds = await getGuestIdsForProperty();
-  const propFilter = STATE.selectedPropertyId !== 'all';
+  const propIds = STATE.selectedPropertyId !== null
+    ? [STATE.selectedPropertyId]
+    : (STATE.accessibleProperties.length > 0 ? STATE.accessibleProperties : STATE.properties).map(p=>p.id);
 
-  let staySrcQ = sb.from('stays').select('source,channel_type');
-  let nightsQ = sb.from('stays').select('nights');
-  let arrQ = sb.from('stays').select('arrival_date').gte('arrival_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10));
-  if(propFilter){
-    staySrcQ = staySrcQ.eq('property_id', STATE.selectedPropertyId);
-    nightsQ = nightsQ.eq('property_id', STATE.selectedPropertyId);
-    arrQ = arrQ.eq('property_id', STATE.selectedPropertyId);
+  if(!propIds || propIds.length === 0){
+    el.innerHTML='<div class="empty">No properties accessible.</div>';
+    return;
   }
 
-  let natQ = sb.from('guests').select('nationality');
-  let typeQ = sb.from('guests').select('guest_type');
-  if(guestIds){
-    if(guestIds.length === 0){
-      natQ = Promise.resolve({data: []});
-      typeQ = Promise.resolve({data: []});
-    } else {
-      natQ = natQ.in('id', guestIds);
-      typeQ = typeQ.in('id', guestIds);
-    }
-  }
-
-  // Calculate property-specific stats if filtering
-  let statsPromise, qualityPromise;
-  if(propFilter && guestIds && guestIds.length > 0){
-    statsPromise = (async () => {
-      const stays = (await sb.from('stays').select('*').eq('property_id', STATE.selectedPropertyId)).data || [];
-      const inHouse = stays.filter(s => ['checked_in','stayover'].includes(s.status)).length;
-      const direct = stays.filter(s => s.channel_type === 'direct').length;
-      const totalRev = stays.reduce((a,s) => a + (parseFloat(s.net_revenue_usd) || 0), 0);
-      return {data:{total_guests:guestIds.length,in_house:inHouse,direct_bookings:direct,total_stays:stays.length,total_net_revenue:totalRev,repeat_guests:0}};
-    })();
-    qualityPromise = (async () => {
-      const g = (await sb.from('guests').select('email,phone,date_of_birth,passport_number,national_id').in('id', guestIds)).data || [];
-      const total = g.length || 1;
-      const has_email = g.filter(x => x.email).length;
-      const has_phone = g.filter(x => x.phone).length;
-      const has_dob = g.filter(x => x.date_of_birth).length;
-      const has_id = g.filter(x => x.passport_number || x.national_id).length;
-      return {data:{total_guests:g.length,has_email,pct_email:Math.round(has_email/total*1000)/10,has_phone,pct_phone:Math.round(has_phone/total*1000)/10,has_dob,pct_dob:Math.round(has_dob/total*1000)/10,has_id,pct_id:Math.round(has_id/total*1000)/10}};
-    })();
-  } else if(propFilter && guestIds && guestIds.length === 0){
-    statsPromise = Promise.resolve({data:{total_guests:0,in_house:0,direct_bookings:0,total_stays:0,total_net_revenue:0,repeat_guests:0}});
-    qualityPromise = Promise.resolve({data:{total_guests:0,has_email:0,pct_email:0,has_phone:0,pct_phone:0,has_dob:0,pct_dob:0,has_id:0,pct_id:0}});
-  } else {
-    statsPromise = sb.from('v_dashboard_stats').select('*').single();
-    qualityPromise = sb.from('v_data_quality').select('*').single();
-  }
-
-  const[stats,qualityRes,sourceRes,natRes,nightsRes,typeRes,arrRes]=await Promise.all([
-    statsPromise,
-    qualityPromise,
-    staySrcQ,
-    natQ,
-    nightsQ,
-    typeQ,
-    arrQ
+  const[propPerfRes, sourceRes, nightsRes, arrRes, allStaysRes] = await Promise.all([
+    sb.from('v_property_performance').select('*').then(r=>r.error?{data:[]}:r),
+    sb.from('stays').select('source,channel_type').in('property_id', propIds),
+    sb.from('stays').select('nights').in('property_id', propIds),
+    sb.from('stays').select('arrival_date').in('property_id', propIds).gte('arrival_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10)),
+    sb.from('stays').select('guest_id').in('property_id', propIds)
   ]);
 
-  const s=stats.data||{};const q=qualityRes.data||{};
+  const propStays = allStaysRes.data || [];
+  const guestIds = new Set(propStays.map(s=>s.guest_id));
+  const guestDataRes = guestIds.size > 0 ? await sb.from('guests').select('id,email,phone,date_of_birth,passport_number,national_id,guest_type,nationality').in('id', Array.from(guestIds)) : {data:[]};
+  const propGuests = guestDataRes.data || [];
+  const totalG = propGuests.length;
+  const hasEmail = propGuests.filter(g=>g.email).length;
+  const hasPhone = propGuests.filter(g=>g.phone).length;
+  const hasDob = propGuests.filter(g=>g.date_of_birth).length;
+  const hasId = propGuests.filter(g=>g.passport_number||g.national_id).length;
+  const s = {total_guests: totalG};
+  const q = {total_guests:totalG,has_email:hasEmail,pct_email:totalG>0?Math.round(1000*hasEmail/totalG)/10:0,has_phone:hasPhone,pct_phone:totalG>0?Math.round(1000*hasPhone/totalG)/10:0,has_dob:hasDob,pct_dob:totalG>0?Math.round(1000*hasDob/totalG)/10:0,has_id:hasId,pct_id:totalG>0?Math.round(1000*hasId/totalG)/10:0};
+  const natData = propGuests.map(g=>({nationality:g.nationality}));
+  const typeData = propGuests.map(g=>({guest_type:g.guest_type}));
+  const propPerf = propPerfRes.data || [];
+  const accessibleIds = new Set((STATE.accessibleProperties.length>0?STATE.accessibleProperties:STATE.properties).map(p=>p.id));
+  const visiblePerf = propPerf.filter(p=>accessibleIds.has(p.property_id));
+  const scopeLabel = STATE.selectedPropertyId ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property') : 'All Properties';
 
-  const sourceCounts={};(sourceRes.data||[]).forEach(r=>{const k=r.source||'Unknown';sourceCounts[k]=(sourceCounts[k]||0)+1;});
-  const natCounts={};(natRes.data||[]).forEach(r=>{const k=r.nationality||'Unknown';natCounts[k]=(natCounts[k]||0)+1;});
-  const nightsCounts={};(nightsRes.data||[]).forEach(r=>{nightsCounts[r.nights]=(nightsCounts[r.nights]||0)+1;});
-
-  // Build Property Performance card (always shown, even when filtered)
-  const propPerf=propPerfRes.data||[];
-  const accessibleIds=new Set(STATE.accessibleProperties.map(p=>p.id));
-  const visiblePerf=propPerf.filter(p=>accessibleIds.has(p.property_id));
-
-  const perfCardHtml=`<div class="card">
-    <div class="ch"><div class="ct">Property Performance</div><div class="cs">side-by-side comparison · all time</div></div>
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px">
-      <thead><tr style="border-bottom:1px solid var(--line-peach)">
-        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Property</th>
-        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Guests</th>
-        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Stays</th>
-        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Avg nights</th>
-        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">In-house</th>
-        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Direct</th>
-        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Email %</th>
-      </tr></thead>
-      <tbody>${visiblePerf.map(p=>{
-        const emailPct=p.unique_guests>0?Math.round(100*p.guests_with_email/p.unique_guests):0;
-        const isCurrent=STATE.selectedPropertyId===p.property_id;
-        return `<tr style="border-bottom:1px solid var(--line-peach);${isCurrent?'background:var(--kaani-cream-deep)':''}">
-          <td style="padding:14px 12px;font-weight:600;color:var(--black)"><div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--kaani-orange)"></span>${escapeHtml(p.property_name)}</div></td>
-          <td style="padding:14px 12px;text-align:right;font-weight:600">${(p.unique_guests||0).toLocaleString()}</td>
-          <td style="padding:14px 12px;text-align:right">${(p.total_stays||0).toLocaleString()}</td>
-          <td style="padding:14px 12px;text-align:right">${p.avg_nights||'—'}</td>
-          <td style="padding:14px 12px;text-align:right">${p.in_house||0}</td>
-          <td style="padding:14px 12px;text-align:right">${p.direct_guests||0}</td>
-          <td style="padding:14px 12px;text-align:right;color:${emailPct>=80?'var(--success)':emailPct>=50?'var(--warning)':'var(--danger)'};font-weight:600">${emailPct}%</td>
-        </tr>`;
-      }).join('')||'<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--gray-text)">No property data yet — import guest lists to see comparison</td></tr>'}</tbody>
-    </table></div>
-  </div>`;
-
-  const scopeLabel=STATE.selectedPropertyId
-    ? STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name
-    : 'All Properties';
+  const perfRows = visiblePerf.length > 0 ? visiblePerf.map(p=>{
+    const emailPct=p.unique_guests>0?Math.round(100*p.guests_with_email/p.unique_guests):0;
+    const isCurrent=STATE.selectedPropertyId===p.property_id;
+    return `<tr style="border-bottom:1px solid var(--line-peach);${isCurrent?'background:var(--kaani-cream-deep)':''}">
+      <td style="padding:12px;font-weight:600"><div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--kaani-orange)"></span>${escapeHtml(p.property_name)}</div></td>
+      <td style="padding:12px;text-align:right;font-weight:600">${(p.unique_guests||0).toLocaleString()}</td>
+      <td style="padding:12px;text-align:right">${(p.total_stays||0).toLocaleString()}</td>
+      <td style="padding:12px;text-align:right">${p.avg_nights||'—'}</td>
+      <td style="padding:12px;text-align:right">${p.in_house||0}</td>
+      <td style="padding:12px;text-align:right">${p.direct_guests||0}</td>
+      <td style="padding:12px;text-align:right;color:${emailPct>=80?'var(--success)':emailPct>=50?'var(--warning)':'var(--danger)'};font-weight:600">${emailPct}%</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--gray-text)">Import guest data to see comparison</td></tr>';
 
   el.innerHTML=`
-    ${perfCardHtml}
-    <div style="margin:24px 0 16px"><h3 style="font-family:'Inter Tight',sans-serif;font-size:18px;font-weight:700;color:var(--black);letter-spacing:-0.02em">${escapeHtml(scopeLabel)} — Detailed View</h3></div>
+    <div class="card">
+      <div class="ch"><div class="ct">Property Performance</div><div class="cs">all time comparison</div></div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">
+        <thead><tr style="border-bottom:1px solid var(--line-peach)">
+          <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Property</th>
+          <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Guests</th>
+          <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Stays</th>
+          <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Avg nights</th>
+          <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">In-house</th>
+          <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Direct</th>
+          <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Email %</th>
+        </tr></thead>
+        <tbody>${perfRows}</tbody>
+      </table></div>
+    </div>
+    <div style="margin:20px 0 14px;padding-bottom:12px;border-bottom:1px solid var(--line-peach)">
+      <div style="font-family:'Inter Tight',sans-serif;font-size:20px;font-weight:700;color:var(--black);letter-spacing:-0.02em">${escapeHtml(scopeLabel)} — Detailed View</div>
+    </div>
     <div class="sg">
-      <div class="kpi"><div class="sl">Unique guests</div><div class="sv">${(s.total_guests||0).toLocaleString()}</div><div class="ss">${scopeLabel}</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:#1D9E75"></div></div></div>
-      <div class="kpi"><div class="sl">Email capture</div><div class="sv">${q.pct_email||0}%</div><div class="ss">${q.has_email||0} of ${q.total_guests||0}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_email||0}%;background:#378ADD"></div></div></div>
-      <div class="kpi"><div class="sl">Phone on file</div><div class="sv">${q.pct_phone||0}%</div><div class="ss">${q.has_phone||0} of ${q.total_guests||0}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_phone||0}%;background:#EF9F27"></div></div></div>
-      <div class="kpi"><div class="sl">DOB on file</div><div class="sv">${q.pct_dob||0}%</div><div class="ss">${q.has_dob||0} of ${q.total_guests||0}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_dob||0}%;background:#1D9E75"></div></div></div>
+      <div class="kpi"><div class="sl">Unique guests</div><div class="sv">${totalG.toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--kaani-orange)"></div></div></div>
+      <div class="kpi"><div class="sl">Email capture</div><div class="sv">${q.pct_email}%</div><div class="ss">${q.has_email} of ${q.total_guests}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_email}%;background:#378ADD"></div></div></div>
+      <div class="kpi"><div class="sl">Phone on file</div><div class="sv">${q.pct_phone}%</div><div class="ss">${q.has_phone} of ${q.total_guests}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_phone}%;background:#EF9F27"></div></div></div>
+      <div class="kpi"><div class="sl">DOB on file</div><div class="sv">${q.pct_dob}%</div><div class="ss">${q.has_dob} of ${q.total_guests}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_dob}%;background:var(--success)"></div></div></div>
     </div>
     <div class="g2">
       <div class="card"><div class="ch"><div class="ct">Booking source</div><div class="cs">all stays</div></div><div class="cw"><canvas id="srcChart"></canvas></div></div>
       <div class="card"><div class="ch"><div class="ct">Top nationalities</div><div class="cs">guest count</div></div><div class="cw"><canvas id="natChart"></canvas></div></div>
     </div>
     <div class="g2">
-      <div class="card"><div class="ch"><div class="ct">Stay length distribution</div><div class="cs">stays by nights</div></div><div class="cw"><canvas id="nightsChart"></canvas></div></div>
+      <div class="card"><div class="ch"><div class="ct">Stay length</div><div class="cs">stays by nights</div></div><div class="cw"><canvas id="nightsChart"></canvas></div></div>
       <div class="card"><div class="ch"><div class="ct">Tourist vs Local</div><div class="cs">guest type</div></div><div class="cw"><canvas id="typeChart"></canvas></div></div>
     </div>
     <div class="card"><div class="ch"><div class="ct">Daily arrivals</div><div class="cs">last 30 days</div></div><div class="cw" style="height:200px"><canvas id="arrChart"></canvas></div></div>
     <div class="card">
       <div class="ct" style="margin-bottom:12px">Data quality</div>
-      <div style="font-size:13px;color:#5F5E5A;line-height:1.8">
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>Email capture</span><strong style="color:#2C2C2A">${q.pct_email||0}%</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>Phone capture</span><strong style="color:#2C2C2A">${q.pct_phone||0}%</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E8E6E0"><span>DOB capture</span><strong style="color:#2C2C2A">${q.pct_dob||0}%</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0"><span>ID/Passport on file</span><strong style="color:#2C2C2A">${q.pct_id||0}%</strong></div>
+      <div style="font-size:13px;color:var(--gray-text)">
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>Email capture</span><strong style="color:var(--black)">${q.pct_email}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>Phone capture</span><strong style="color:var(--black)">${q.pct_phone}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>DOB capture</span><strong style="color:var(--black)">${q.pct_dob}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0"><span>ID / Passport</span><strong style="color:var(--black)">${q.pct_id}%</strong></div>
       </div>
     </div>
-    <div class="card" id="insights-card">
-      <div class="ct" style="margin-bottom:12px">Key insights for action</div>
-      <div id="insights-body"></div>
-    </div>`;
+    <div class="card"><div class="ct" style="margin-bottom:12px">Key insights · ${escapeHtml(scopeLabel)}</div><div id="insights-body"><div class="loading">Generating</div></div></div>`;
 
-  // Render charts
+  const sourceCounts={};(sourceRes.data||[]).forEach(r=>{const k=r.source||'Unknown';sourceCounts[k]=(sourceCounts[k]||0)+1;});
   const srcOrder=Object.entries(sourceCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  new Chart(document.getElementById('srcChart'),{type:'doughnut',data:{labels:srcOrder.map(([n])=>srcShort(n)),datasets:[{data:srcOrder.map(([,v])=>v),backgroundColor:['#1D9E75','#378ADD','#EF9F27','#5DCAA5','#D85A30','#AFA9EC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11}}}}}});
+  new Chart(document.getElementById('srcChart'),{type:'doughnut',data:{labels:srcOrder.map(([n])=>srcShort(n)),datasets:[{data:srcOrder.map(([,v])=>v),backgroundColor:['#F47923','#2C7AB5','#1D9E75','#BA7517','#A32D2D','#6E5BB8'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}}}}});
 
+  const natCounts={};natData.forEach(r=>{const k=r.nationality||'Unknown';natCounts[k]=(natCounts[k]||0)+1;});
   const natOrder=Object.entries(natCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
-  new Chart(document.getElementById('natChart'),{type:'bar',data:{labels:natOrder.map(([n])=>n),datasets:[{data:natOrder.map(([,v])=>v),backgroundColor:'#1D9E75',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:11}}}}}});
+  new Chart(document.getElementById('natChart'),{type:'bar',data:{labels:natOrder.map(([n])=>n),datasets:[{data:natOrder.map(([,v])=>v),backgroundColor:'#F47923',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:10}}}}}});
 
-  const nKeys=Object.keys(nightsCounts).map(Number).sort((a,b)=>a-b);
-  new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nKeys.map(n=>n+'n'),datasets:[{data:nKeys.map(n=>nightsCounts[n]),backgroundColor:'#9FE1CB',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
+  const nDist={};(nightsRes.data||[]).forEach(r=>{nDist[r.nights]=(nDist[r.nights]||0)+1;});
+  const nKeys=Object.keys(nDist).map(Number).sort((a,b)=>a-b);
+  new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nKeys.map(n=>n+'n'),datasets:[{data:nKeys.map(n=>nDist[n]),backgroundColor:'#FBD7BC',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
 
-  // Tourist vs Local donut
-  const typeCounts={tourist:0,local:0};
-  (typeRes.data||[]).forEach(g=>{if(g.guest_type==='tourist')typeCounts.tourist++;else if(g.guest_type==='local')typeCounts.local++;});
+  const typeCounts={tourist:0,local:0};typeData.forEach(g=>{if(g.guest_type==='tourist')typeCounts.tourist++;else if(g.guest_type==='local')typeCounts.local++;});
   const totalType=typeCounts.tourist+typeCounts.local;
-  new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[typeCounts.tourist,typeCounts.local],backgroundColor:['#1D9E75','#AFA9EC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},generateLabels:(c)=>{const d=c.data;return d.labels.map((l,i)=>({text:l+' '+d.datasets[0].data[i]+(totalType?' ('+Math.round(d.datasets[0].data[i]/totalType*100)+'%)':''),fillStyle:d.datasets[0].backgroundColor[i],strokeStyle:d.datasets[0].backgroundColor[i],index:i}));}}}}}});
+  new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[typeCounts.tourist,typeCounts.local],backgroundColor:['#F47923','#FBD7BC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12,generateLabels:(c)=>{const d=c.data;return d.labels.map((l,i)=>({text:l+' '+d.datasets[0].data[i]+(totalType?' ('+Math.round(d.datasets[0].data[i]/totalType*100)+'%)':''),fillStyle:d.datasets[0].backgroundColor[i],strokeStyle:'transparent',index:i}));}}}}}}); 
 
-  // Daily arrivals line chart
   const arrCounts={};(arrRes.data||[]).forEach(s=>{if(s.arrival_date)arrCounts[s.arrival_date]=(arrCounts[s.arrival_date]||0)+1;});
   const arrSorted=Object.entries(arrCounts).sort();
-  const arrLabels=arrSorted.map(([d])=>{const dt=new Date(d);return String(dt.getDate()).padStart(2,'0')+' '+MONTHS[dt.getMonth()];});
-  const arrVals=arrSorted.map(([,v])=>v);
-  new Chart(document.getElementById('arrChart'),{type:'line',data:{labels:arrLabels,datasets:[{data:arrVals,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.12)',fill:true,tension:0.3,pointBackgroundColor:'#1D9E75',pointRadius:4,pointHoverRadius:6,borderWidth:2.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10},maxRotation:0}}}}});
+  new Chart(document.getElementById('arrChart'),{type:'line',data:{labels:arrSorted.map(([d])=>{const dt=new Date(d);return String(dt.getDate()).padStart(2,'0')+' '+MONTHS[dt.getMonth()];}),datasets:[{data:arrSorted.map(([,v])=>v),borderColor:'#F47923',backgroundColor:'rgba(244,121,35,0.1)',fill:true,tension:0.3,pointBackgroundColor:'#F47923',pointRadius:4,pointHoverRadius:6,borderWidth:2.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10},maxRotation:0}}}}});
 
-  // Generate insights dynamically
-  generateInsights(s,q,sourceCounts,natCounts,typeCounts,nightsCounts);
+  generateInsights(s,q,sourceCounts,natCounts,typeCounts,nDist);
 }
 
-function generateInsights(stats,quality,sources,nats,types,nightsDist){
-  const insights=[];
-  const totalStays=Object.values(sources).reduce((a,b)=>a+b,0);
-  const totalGuests=Object.values(nats).reduce((a,b)=>a+b,0);
-  if(totalStays>0){
-    const sortedSources=Object.entries(sources).sort((a,b)=>b[1]-a[1]);
-    const topSrc=sortedSources[0];
-    const topPct=Math.round(topSrc[1]/totalStays*100);
-    if(topPct>40){
-      insights.push({title:'Source concentration risk.',body:topPct+'% of stays come through one channel ('+srcShort(topSrc[0])+'). Diversifying source channels reduces risk.'});
-    }
-  }
-  if(totalGuests>0){
-    const sortedNats=Object.entries(nats).sort((a,b)=>b[1]-a[1]);
-    const topNat=sortedNats[0];
-    const topNatPct=Math.round(topNat[1]/totalGuests*100);
-    if(topNatPct>30){
-      insights.push({title:topNat[0]+' market dominance.',body:topNatPct+'% of guests are from '+topNat[0]+'. Consider language-specific content and culturally tailored welcome touches.'});
-    }
-  }
-  const totalNights=Object.values(nightsDist).reduce((a,b)=>a+b,0);
-  const longStays=Object.entries(nightsDist).filter(([n])=>+n>=7).reduce((a,[,v])=>a+v,0);
-  if(totalNights>0&&longStays/totalNights>0.3){
-    insights.push({title:'Long-stay loyalty opportunity.',body:Math.round(longStays/totalNights*100)+'% of stays are 7+ nights — these are your most engaged guests and the prime targets for win-back campaigns.'});
-  }
-  if(quality.pct_email<90){
-    insights.push({title:'Email gap.',body:'Only '+(quality.pct_email||0)+'% of guests have an email on file. Capturing missing emails at check-in is the single biggest lift to your marketing reach.'});
-  }
-  const directCount=Object.entries(sources).filter(([s])=>s&&(s.toUpperCase().includes('DIRECT'))).reduce((a,[,v])=>a+v,0);
-  if(totalStays>0){
-    const directPct=Math.round(directCount/totalStays*100);
-    if(directPct<25){
-      insights.push({title:'Direct booking upside.',body:'Only '+directPct+'% of bookings are direct vs 25–30% benchmark. The win-back campaign in your action plan targets this gap.'});
-    }
-  }
-  document.getElementById('insights-body').innerHTML=insights.length?insights.map(i=>'<div style="padding:10px 0;border-bottom:1px solid #E8E6E0;font-size:13px;color:#5F5E5A;line-height:1.7"><strong style="color:#2C2C2A;font-weight:500">'+i.title+'</strong> '+i.body+'</div>').join(''):'<div style="font-size:13px;color:#5F5E5A">More insights will appear as your data grows.</div>';
-}
-
-// ============================================================================
-// GUESTS
-// ============================================================================
 async function renderGuestsPane(){
   const el=document.getElementById('pane-guests');
   el.innerHTML=`
