@@ -17,6 +17,7 @@ const STATE = {
   guestsPerPage: 50,
   selectedGuestId: null,
   chartsRendered: false,
+  selectedPropertyId: 'all',  // 'all' or a property ID number
 };
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -168,7 +169,72 @@ async function showApp(){
     document.getElementById('admin-tab').style.display='inline-block';
   }
   await loadInitialData();
+  setupPropertyAccess();
+  renderPropertySelector();
   await renderOverview();
+}
+
+function setupPropertyAccess(){
+  if(STATE.profile.role==='admin'){
+    STATE.accessibleProperties=STATE.properties;
+    STATE.selectedPropertyId=null;
+  } else if(STATE.profile.role==='manager'){
+    const assigned=STATE.profile.property_ids||[];
+    STATE.accessibleProperties=assigned.length>0
+      ? STATE.properties.filter(p=>assigned.includes(p.id))
+      : STATE.properties;
+    STATE.selectedPropertyId=null;
+  } else {
+    const assigned=STATE.profile.property_ids||[];
+    STATE.accessibleProperties=assigned.length>0
+      ? STATE.properties.filter(p=>assigned.includes(p.id))
+      : STATE.properties;
+    STATE.selectedPropertyId=STATE.profile.default_property_id
+      || (STATE.accessibleProperties[0]?.id || null);
+  }
+}
+
+function renderPropertySelector(){
+  const bar=document.getElementById('prop-bar');
+  const pills=document.getElementById('prop-pills');
+  if(!bar||!pills)return;
+
+  if(STATE.accessibleProperties.length<=1 && STATE.profile.role!=='admin'){
+    bar.style.display='none';
+    return;
+  }
+
+  bar.style.display='flex';
+
+  let html='';
+  if(STATE.profile.role==='admin'||(STATE.profile.role==='manager'&&STATE.accessibleProperties.length>1)){
+    const allLabel=STATE.profile.role==='admin'?'All Properties':'All My Properties';
+    html+=`<button class="pp ${STATE.selectedPropertyId===null?'on':''}" onclick="selectProperty(null)">${allLabel}</button>`;
+  }
+  STATE.accessibleProperties.forEach(p=>{
+    html+=`<button class="pp ${STATE.selectedPropertyId===p.id?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
+  });
+
+  pills.innerHTML=html;
+}
+
+async function selectProperty(propId){
+  STATE.selectedPropertyId=propId;
+  STATE.guestsPage=0;
+  STATE.chartsRendered=false;
+  renderPropertySelector();
+
+  const activePane=document.querySelector('.pane.on');
+  if(!activePane)return;
+  const tabId=activePane.id.replace('pane-','');
+  if(tabId==='overview')renderOverview();
+  if(tabId==='dashboard')renderDashboard();
+  if(tabId==='guests')renderGuestsPane();
+  if(tabId==='actions')renderActionsPane();
+  if(tabId==='marketing')renderMarketingPane();
+  if(tabId==='reports')renderReportsPane();
+
+  toast(propId?`Viewing: ${STATE.properties.find(p=>p.id===propId)?.name||''}`:'Viewing: All Properties');
 }
 
 async function loadInitialData(){
@@ -204,6 +270,60 @@ function sw(tab,btn){
   if(tab==='admin')renderAdminPane();
 }
 
+
+
+// ============================================================================
+// PROPERTY SELECTOR — affects all data queries across tabs
+// ============================================================================
+function renderPropertySelector() {
+  const bar = document.getElementById('property-bar');
+  if (!bar) return;
+  const sel = STATE.selectedPropertyId;
+  const all = sel === 'all';
+  const selectedName = all ? 'All Properties' : (STATE.properties.find(p => p.id == sel)?.name || 'Unknown');
+  let html = `<div class="prop-selector">
+    <div class="prop-label">Viewing:</div>
+    <button class="prop-pill ${all ? 'on' : ''}" onclick="changeProperty('all')">All Properties</button>`;
+  STATE.properties.forEach(p => {
+    html += `<button class="prop-pill ${sel == p.id ? 'on' : ''}" onclick="changeProperty(${p.id})">${escapeHtml(p.name)}</button>`;
+  });
+  html += `</div>`;
+  bar.innerHTML = html;
+}
+
+function changeProperty(id) {
+  STATE.selectedPropertyId = id;
+  renderPropertySelector();
+  // Re-render currently active tab
+  const activeBtn = document.querySelector('.nav .nb.on');
+  if (activeBtn) {
+    const onclick = activeBtn.getAttribute('onclick');
+    const match = onclick.match(/sw\('(\w+)'/);
+    if (match) {
+      const tab = match[1];
+      if (tab === 'overview') renderOverview();
+      if (tab === 'dashboard') { STATE.chartsRendered = false; renderDashboard(); }
+      if (tab === 'guests') { STATE.guestsPage = 0; renderGuestsPane(); }
+      if (tab === 'actions') renderActionsPane();
+      if (tab === 'marketing') renderMarketingPane();
+      if (tab === 'reports') renderReportsPane();
+    }
+  }
+}
+
+// Helper: applies property filter to a Supabase query on the stays table
+function applyPropertyFilter(query) {
+  if (STATE.selectedPropertyId === 'all') return query;
+  return query.eq('property_id', STATE.selectedPropertyId);
+}
+
+// Helper: get list of guest IDs that have stayed at the selected property
+async function getGuestIdsForProperty() {
+  if (STATE.selectedPropertyId === 'all') return null;  // null = all guests
+  const { data } = await sb.from('stays').select('guest_id').eq('property_id', STATE.selectedPropertyId);
+  return [...new Set((data || []).map(s => s.guest_id))];
+}
+
 // ============================================================================
 // OVERVIEW
 // ============================================================================
@@ -211,22 +331,71 @@ async function renderOverview(){
   const el=document.getElementById('pane-overview');
   el.innerHTML='<div class="loading">Loading</div>';
 
+  let inhouseQuery = sb.from('stays').select('*,guests(*),properties(name)').in('status',['checked_in','stayover']).order('arrival_date',{ascending:false}).limit(8);
+  let coQuery = sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false}).limit(5);
+  if(STATE.selectedPropertyId !== 'all'){
+    inhouseQuery = inhouseQuery.eq('property_id', STATE.selectedPropertyId);
+    coQuery = coQuery.eq('property_id', STATE.selectedPropertyId);
+  }
+  const guestIdsForProp = await getGuestIdsForProperty();
   const[statsRes,inhouseRes,bdayRes,recentCheckoutRes]=await Promise.all([
-    sb.from('v_dashboard_stats').select('*').single(),
-    sb.from('stays').select('*,guests(*),properties(name)').in('status',['checked_in','stayover']).order('arrival_date',{ascending:false}).limit(8),
-    sb.rpc('get_upcoming_birthdays',{days_ahead:30}).then(r=>r.error?null:r).catch(()=>null),
-    sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false}).limit(5)
+    computePropertyStats(),
+    inhouseQuery,
+    Promise.resolve(null),
+    coQuery
   ]);
 
-  const stats=statsRes.data||{};
+  async function computePropertyStats(){
+    if(STATE.selectedPropertyId === 'all'){
+      return await sb.from('v_dashboard_stats').select('*').single();
+    }
+    // Compute stats for the specific property
+    const propStays = await sb.from('stays').select('*,guests(email,date_of_birth)').eq('property_id', STATE.selectedPropertyId);
+    const stays = propStays.data || [];
+    const uniqueGuests = new Set(stays.map(s => s.guest_id));
+    const inHouse = stays.filter(s => ['checked_in','stayover'].includes(s.status)).length;
+    const direct = stays.filter(s => s.channel_type === 'direct').length;
+    const repeat = await sb.from('guests').select('id').in('id', [...uniqueGuests]).in('lead_status',['repeat','vip']);
+    const totalRev = stays.reduce((a,s) => a + (parseFloat(s.net_revenue_usd) || 0), 0);
+    return {data: {
+      total_guests: uniqueGuests.size,
+      in_house: inHouse,
+      repeat_guests: (repeat.data || []).length,
+      direct_bookings: direct,
+      total_stays: stays.length,
+      total_net_revenue: totalRev
+    }};
+  }
+
+  // Build stats from property-filtered data
+  const propStays=stayStatsRes.data||[];
+  const guestIds=new Set(propStays.map(s=>s.guest_id));
+  const allGuests=guestStatsRes.data||[];
+  const propGuests=allGuests.filter(g=>guestIds.has(g.id));
+
+  const stats={
+    total_guests:propGuests.length,
+    in_house:propStays.filter(s=>['checked_in','stayover'].includes(s.status)).length,
+    repeat_guests:propGuests.filter(g=>['repeat','vip'].includes(g.lead_status)).length,
+    direct_bookings:propStays.filter(s=>s.channel_type==='direct').length,
+    total_stays:propStays.length,
+    total_net_revenue:propStays.reduce((a,s)=>a+(parseFloat(s.net_revenue_usd)||0),0)
+  };
 
   // Birthday fallback if RPC doesn't exist
   let birthdays=[];
   if(bdayRes&&bdayRes.data){
     birthdays=bdayRes.data;
   }else{
-    const{data:bd}=await sb.from('guests').select('id,full_name,email,date_of_birth').not('date_of_birth','is',null).not('email','is',null).limit(500);
-    birthdays=(bd||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
+    let bdQ = sb.from('guests').select('id,full_name,email,date_of_birth').not('date_of_birth','is',null).not('email','is',null).limit(500);
+    if(guestIdsForProp){
+      if(guestIdsForProp.length === 0){ birthdays = []; }
+      else { bdQ = bdQ.in('id', guestIdsForProp); }
+    }
+    if(!guestIdsForProp || guestIdsForProp.length > 0){
+      const{data:bd}=await bdQ;
+      birthdays=(bd||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
+    }
   }
 
   let html=`
@@ -276,14 +445,65 @@ async function renderDashboard(){
   const el=document.getElementById('pane-dashboard');
   el.innerHTML='<div class="loading">Loading dashboard</div>';
 
+  const guestIds = await getGuestIdsForProperty();
+  const propFilter = STATE.selectedPropertyId !== 'all';
+
+  let staySrcQ = sb.from('stays').select('source,channel_type');
+  let nightsQ = sb.from('stays').select('nights');
+  let arrQ = sb.from('stays').select('arrival_date').gte('arrival_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10));
+  if(propFilter){
+    staySrcQ = staySrcQ.eq('property_id', STATE.selectedPropertyId);
+    nightsQ = nightsQ.eq('property_id', STATE.selectedPropertyId);
+    arrQ = arrQ.eq('property_id', STATE.selectedPropertyId);
+  }
+
+  let natQ = sb.from('guests').select('nationality');
+  let typeQ = sb.from('guests').select('guest_type');
+  if(guestIds){
+    if(guestIds.length === 0){
+      natQ = Promise.resolve({data: []});
+      typeQ = Promise.resolve({data: []});
+    } else {
+      natQ = natQ.in('id', guestIds);
+      typeQ = typeQ.in('id', guestIds);
+    }
+  }
+
+  // Calculate property-specific stats if filtering
+  let statsPromise, qualityPromise;
+  if(propFilter && guestIds && guestIds.length > 0){
+    statsPromise = (async () => {
+      const stays = (await sb.from('stays').select('*').eq('property_id', STATE.selectedPropertyId)).data || [];
+      const inHouse = stays.filter(s => ['checked_in','stayover'].includes(s.status)).length;
+      const direct = stays.filter(s => s.channel_type === 'direct').length;
+      const totalRev = stays.reduce((a,s) => a + (parseFloat(s.net_revenue_usd) || 0), 0);
+      return {data:{total_guests:guestIds.length,in_house:inHouse,direct_bookings:direct,total_stays:stays.length,total_net_revenue:totalRev,repeat_guests:0}};
+    })();
+    qualityPromise = (async () => {
+      const g = (await sb.from('guests').select('email,phone,date_of_birth,passport_number,national_id').in('id', guestIds)).data || [];
+      const total = g.length || 1;
+      const has_email = g.filter(x => x.email).length;
+      const has_phone = g.filter(x => x.phone).length;
+      const has_dob = g.filter(x => x.date_of_birth).length;
+      const has_id = g.filter(x => x.passport_number || x.national_id).length;
+      return {data:{total_guests:g.length,has_email,pct_email:Math.round(has_email/total*1000)/10,has_phone,pct_phone:Math.round(has_phone/total*1000)/10,has_dob,pct_dob:Math.round(has_dob/total*1000)/10,has_id,pct_id:Math.round(has_id/total*1000)/10}};
+    })();
+  } else if(propFilter && guestIds && guestIds.length === 0){
+    statsPromise = Promise.resolve({data:{total_guests:0,in_house:0,direct_bookings:0,total_stays:0,total_net_revenue:0,repeat_guests:0}});
+    qualityPromise = Promise.resolve({data:{total_guests:0,has_email:0,pct_email:0,has_phone:0,pct_phone:0,has_dob:0,pct_dob:0,has_id:0,pct_id:0}});
+  } else {
+    statsPromise = sb.from('v_dashboard_stats').select('*').single();
+    qualityPromise = sb.from('v_data_quality').select('*').single();
+  }
+
   const[stats,qualityRes,sourceRes,natRes,nightsRes,typeRes,arrRes]=await Promise.all([
-    sb.from('v_dashboard_stats').select('*').single(),
-    sb.from('v_data_quality').select('*').single(),
-    sb.from('stays').select('source,channel_type'),
-    sb.from('guests').select('nationality'),
-    sb.from('stays').select('nights'),
-    sb.from('guests').select('guest_type'),
-    sb.from('stays').select('arrival_date').gte('arrival_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10))
+    statsPromise,
+    qualityPromise,
+    staySrcQ,
+    natQ,
+    nightsQ,
+    typeQ,
+    arrQ
   ]);
 
   const s=stats.data||{};const q=qualityRes.data||{};
@@ -292,9 +512,48 @@ async function renderDashboard(){
   const natCounts={};(natRes.data||[]).forEach(r=>{const k=r.nationality||'Unknown';natCounts[k]=(natCounts[k]||0)+1;});
   const nightsCounts={};(nightsRes.data||[]).forEach(r=>{nightsCounts[r.nights]=(nightsCounts[r.nights]||0)+1;});
 
+  // Build Property Performance card (always shown, even when filtered)
+  const propPerf=propPerfRes.data||[];
+  const accessibleIds=new Set(STATE.accessibleProperties.map(p=>p.id));
+  const visiblePerf=propPerf.filter(p=>accessibleIds.has(p.property_id));
+
+  const perfCardHtml=`<div class="card">
+    <div class="ch"><div class="ct">Property Performance</div><div class="cs">side-by-side comparison · all time</div></div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px">
+      <thead><tr style="border-bottom:1px solid var(--line-peach)">
+        <th style="text-align:left;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Property</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Guests</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Stays</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Avg nights</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">In-house</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Direct</th>
+        <th style="text-align:right;padding:10px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Email %</th>
+      </tr></thead>
+      <tbody>${visiblePerf.map(p=>{
+        const emailPct=p.unique_guests>0?Math.round(100*p.guests_with_email/p.unique_guests):0;
+        const isCurrent=STATE.selectedPropertyId===p.property_id;
+        return `<tr style="border-bottom:1px solid var(--line-peach);${isCurrent?'background:var(--kaani-cream-deep)':''}">
+          <td style="padding:14px 12px;font-weight:600;color:var(--black)"><div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--kaani-orange)"></span>${escapeHtml(p.property_name)}</div></td>
+          <td style="padding:14px 12px;text-align:right;font-weight:600">${(p.unique_guests||0).toLocaleString()}</td>
+          <td style="padding:14px 12px;text-align:right">${(p.total_stays||0).toLocaleString()}</td>
+          <td style="padding:14px 12px;text-align:right">${p.avg_nights||'—'}</td>
+          <td style="padding:14px 12px;text-align:right">${p.in_house||0}</td>
+          <td style="padding:14px 12px;text-align:right">${p.direct_guests||0}</td>
+          <td style="padding:14px 12px;text-align:right;color:${emailPct>=80?'var(--success)':emailPct>=50?'var(--warning)':'var(--danger)'};font-weight:600">${emailPct}%</td>
+        </tr>`;
+      }).join('')||'<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--gray-text)">No property data yet — import guest lists to see comparison</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+
+  const scopeLabel=STATE.selectedPropertyId
+    ? STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name
+    : 'All Properties';
+
   el.innerHTML=`
+    ${perfCardHtml}
+    <div style="margin:24px 0 16px"><h3 style="font-family:'Inter Tight',sans-serif;font-size:18px;font-weight:700;color:var(--black);letter-spacing:-0.02em">${escapeHtml(scopeLabel)} — Detailed View</h3></div>
     <div class="sg">
-      <div class="kpi"><div class="sl">Unique guests</div><div class="sv">${(s.total_guests||0).toLocaleString()}</div><div class="ss">All time</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:#1D9E75"></div></div></div>
+      <div class="kpi"><div class="sl">Unique guests</div><div class="sv">${(s.total_guests||0).toLocaleString()}</div><div class="ss">${scopeLabel}</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:#1D9E75"></div></div></div>
       <div class="kpi"><div class="sl">Email capture</div><div class="sv">${q.pct_email||0}%</div><div class="ss">${q.has_email||0} of ${q.total_guests||0}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_email||0}%;background:#378ADD"></div></div></div>
       <div class="kpi"><div class="sl">Phone on file</div><div class="sv">${q.pct_phone||0}%</div><div class="ss">${q.has_phone||0} of ${q.total_guests||0}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_phone||0}%;background:#EF9F27"></div></div></div>
       <div class="kpi"><div class="sl">DOB on file</div><div class="sv">${q.pct_dob||0}%</div><div class="ss">${q.has_dob||0} of ${q.total_guests||0}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_dob||0}%;background:#1D9E75"></div></div></div>
@@ -402,7 +661,18 @@ async function renderGuestsPane(){
     <div id="glist"></div>
     <div class="pagination" id="g-pagination"></div>`;
 
-  const{data:qual}=await sb.from('v_data_quality').select('*').single();
+  let qual;
+  const gIds = await getGuestIdsForProperty();
+  if(gIds === null){
+    const{data}=await sb.from('v_data_quality').select('*').single();
+    qual = data;
+  } else if(gIds.length === 0){
+    qual = {total_guests:0,has_email:0,pct_email:0,has_phone:0,pct_phone:0,has_dob:0,pct_dob:0};
+  } else {
+    const g = (await sb.from('guests').select('email,phone,date_of_birth').in('id', gIds)).data || [];
+    const total = g.length || 1;
+    qual = {total_guests:g.length,has_email:g.filter(x=>x.email).length,pct_email:Math.round(g.filter(x=>x.email).length/total*1000)/10,has_phone:g.filter(x=>x.phone).length,pct_phone:Math.round(g.filter(x=>x.phone).length/total*1000)/10,has_dob:g.filter(x=>x.date_of_birth).length,pct_dob:Math.round(g.filter(x=>x.date_of_birth).length/total*1000)/10};
+  }
   document.getElementById('g-stats').innerHTML=`
     <div class="sm"><div class="sl">Total</div><div class="sv">${(qual?.total_guests||0).toLocaleString()}</div></div>
     <div class="sm"><div class="sl">With email</div><div class="sv">${qual?.has_email||0}</div><div class="ss">${qual?.pct_email||0}%</div></div>
@@ -433,6 +703,15 @@ async function loadGuests(){
     const to=from+STATE.guestsPerPage-1;
 
     let query=sb.from('guests').select('*',{count:'exact'}).order('last_stay_date',{ascending:false,nullsFirst:false}).range(from,to);
+    if(STATE.selectedPropertyId !== 'all'){
+      const propGuestIds = await getGuestIdsForProperty();
+      if(propGuestIds.length === 0){
+        STATE.currentGuests = [];
+        renderGuestList(0);
+        return;
+      }
+      query = query.in('id', propGuestIds);
+    }
     if(q){query=query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,nationality.ilike.%${q}%`);}
     if(fst)query=query.eq('lead_status',fst);
     if(fnat)query=query.eq('nationality',fnat);
@@ -634,26 +913,52 @@ async function renderAction(key,btn){
   let guests=[];
   let segmentLabel='';
 
+  const actionPropGuestIds = await getGuestIdsForProperty();
+  const propLabel = STATE.selectedPropertyId === 'all' ? '' : ' (' + (STATE.properties.find(p=>p.id==STATE.selectedPropertyId)?.name||'') + ')';
+  function filterByProp(guestList){
+    if(!actionPropGuestIds) return guestList;
+    const idSet = new Set(actionPropGuestIds);
+    return guestList.filter(g => idSet.has(g.id));
+  }
+
   if(key==='review_request'){
-    const{data}=await sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false});
+    let q = sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false});
+    if(STATE.selectedPropertyId !== 'all') q = q.eq('property_id', STATE.selectedPropertyId);
+    const{data}=await q;
     guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
-    segmentLabel='Recent checkouts (last 3 days)';
+    segmentLabel='Recent checkouts (last 3 days)' + propLabel;
   }else if(key==='winback'){
-    const{data}=await sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(200);
-    guests=data||[];
-    segmentLabel='First-time + lapsed guests with emails';
+    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(200);
+    if(actionPropGuestIds){
+      if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
+      else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=data||[]; segmentLabel='First-time + lapsed guests with emails' + propLabel; }
+    } else {
+      const{data}=await q; guests=data||[]; segmentLabel='First-time + lapsed guests with emails';
+    }
   }else if(key==='upsell'){
-    const{data}=await sb.from('stays').select('*,guests(*)').in('status',['checked_in','stayover']).gte('nights',3);
+    let q = sb.from('stays').select('*,guests(*)').in('status',['checked_in','stayover']).gte('nights',3);
+    if(STATE.selectedPropertyId !== 'all') q = q.eq('property_id', STATE.selectedPropertyId);
+    const{data}=await q;
     guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
-    segmentLabel='Current stayovers (3+ nights with email)';
+    segmentLabel='Current stayovers (3+ nights with email)' + propLabel;
   }else if(key==='birthday'){
-    const{data}=await sb.from('guests').select('*').not('email','is',null).not('date_of_birth','is',null).eq('marketing_consent',true).limit(500);
-    guests=(data||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
-    segmentLabel='Birthdays in next 30 days';
+    let q = sb.from('guests').select('*').not('email','is',null).not('date_of_birth','is',null).eq('marketing_consent',true).limit(500);
+    if(actionPropGuestIds){
+      if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
+      else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=(data||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth)); segmentLabel='Birthdays in next 30 days' + propLabel; }
+    } else {
+      const{data}=await q;
+      guests=(data||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
+      segmentLabel='Birthdays in next 30 days';
+    }
   }else if(key==='seasonal'){
-    const{data}=await sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).limit(2000);
-    guests=data||[];
-    segmentLabel='All guests with marketing consent';
+    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).limit(2000);
+    if(actionPropGuestIds){
+      if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
+      else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=data||[]; segmentLabel='All guests with marketing consent' + propLabel; }
+    } else {
+      const{data}=await q; guests=data||[]; segmentLabel='All guests with marketing consent';
+    }
   }
 
   // Deduplicate by id
@@ -696,7 +1001,16 @@ async function renderMarketingPane(){
   const el=document.getElementById('pane-marketing');
   el.innerHTML='<div class="loading">Loading</div>';
 
-  const{data:all}=await sb.from('guests').select('id,full_name,email,nationality,lead_status,date_of_birth,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(5000);
+  const propGuestIds = await getGuestIdsForProperty();
+  let allQ = sb.from('guests').select('id,full_name,email,nationality,lead_status,date_of_birth,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(5000);
+  if(propGuestIds){
+    if(propGuestIds.length === 0){
+      el.innerHTML='<div class="empty">No guests yet for this property</div>';
+      return;
+    }
+    allQ = allQ.in('id', propGuestIds);
+  }
+  const{data:all}=await allQ;
   const list=all||[];
 
   // Get direct booker IDs separately
@@ -825,21 +1139,33 @@ function downloadCSV(filename,headers,rows){
 
 async function downloadGuestReport(){
   toast('Generating guest report...');
-  const{data}=await sb.from('guests').select('*').order('last_stay_date',{ascending:false}).limit(50000);
+  const propIds=getFilterPropertyIds();
+  const isAll=propIds.length===STATE.properties.length;
+  let q=sb.from('guests').select('*').order('last_stay_date',{ascending:false}).limit(50000);
+  if(!isAll){
+    const{data:propStays}=await sb.from('stays').select('guest_id').in('property_id',propIds);
+    const ids=Array.from(new Set((propStays||[]).map(s=>s.guest_id)));
+    if(ids.length===0){toast('No guests for this property',true);return;}
+    q=q.in('id',ids);
+  }
+  const{data}=await q;
   const rows=(data||[]).map(g=>[g.full_name,g.email,g.phone,g.nationality,g.date_of_birth,g.passport_number,g.national_id,g.guest_type,g.lead_status,g.total_stays,g.total_nights,g.total_revenue_usd,g.first_stay_date,g.last_stay_date,g.marketing_consent]);
-  downloadCSV('kaani_guests_'+new Date().toISOString().slice(0,10)+'.csv',['Name','Email','Phone','Nationality','DOB','Passport','National ID','Type','Status','Stays','Nights','Revenue','First Stay','Last Stay','Marketing OK'],rows);
+  const scope=STATE.selectedPropertyId?STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name?.replace(/\s+/g,'_').toLowerCase():'all';
+  downloadCSV('kaani_guests_'+scope+'_'+new Date().toISOString().slice(0,10)+'.csv',['Name','Email','Phone','Nationality','DOB','Passport','National ID','Type','Status','Stays','Nights','Revenue','First Stay','Last Stay','Marketing OK'],rows);
 }
 
 async function downloadStaysReport(){
   toast('Generating stays report...');
   const from=document.getElementById('rep-from').value;
   const to=document.getElementById('rep-to').value;
-  let q=sb.from('stays').select('*,guests(full_name,email,nationality),properties(name)').limit(50000);
+  const propIds=getFilterPropertyIds();
+  let q=sb.from('stays').select('*,guests(full_name,email,nationality),properties(name)').in('property_id',propIds).limit(50000);
   if(from)q=q.gte('arrival_date',from);
   if(to)q=q.lte('arrival_date',to);
   const{data}=await q;
   const rows=(data||[]).map(s=>[s.guests?.full_name,s.guests?.email,s.guests?.nationality,s.properties?.name,s.arrival_date,s.departure_date,s.nights,s.room_number,s.source,s.channel_type,s.rate_per_night_usd,s.total_revenue_usd,s.status]);
-  downloadCSV('kaani_stays_'+new Date().toISOString().slice(0,10)+'.csv',['Guest','Email','Nationality','Property','Arrival','Departure','Nights','Room','Source','Channel','Rate','Revenue','Status'],rows);
+  const scope=STATE.selectedPropertyId?STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name?.replace(/\s+/g,'_').toLowerCase():'all';
+  downloadCSV('kaani_stays_'+scope+'_'+new Date().toISOString().slice(0,10)+'.csv',['Guest','Email','Nationality','Property','Arrival','Departure','Nights','Room','Source','Channel','Rate','Revenue','Status'],rows);
 }
 
 async function downloadSourceReport(){
@@ -1052,11 +1378,12 @@ async function renderAdminPane(){
       <div class="cd">Add team members by sharing the login URL — they sign up themselves with email/password, then you assign their role here.</div>
       ${(users||[]).map(u=>`<div class="row">
         <div style="flex:1;min-width:0"><div class="rn">${escapeHtml(u.full_name||u.user_id)}</div><div style="font-size:11px;color:#5F5E5A">${u.user_id===STATE.user.id?'(you)':''}</div></div>
-        <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:5px 10px;border-radius:6px;border:1px solid #E8E6E0;font-family:inherit">
+        <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border-subtle);font-family:inherit;background:#fff">
           <option value="staff" ${u.role==='staff'?'selected':''}>Staff</option>
           <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
           <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
         </select>
+        <button class="btn" style="font-size:11px;padding:6px 12px" onclick="manageProperties('${u.user_id}','${escapeHtml(u.full_name||'')}')">Properties</button>
       </div>`).join('')}
     </div>
     <div class="card">
@@ -1077,6 +1404,46 @@ async function updateUserRole(userId,role){
   const{error}=await sb.from('user_profiles').update({role}).eq('user_id',userId);
   if(error){toast(error.message,true);return;}
   toast('Role updated');
+}
+
+async function manageProperties(userId,userName){
+  const{data:profile}=await sb.from('user_profiles').select('property_ids').eq('user_id',userId).single();
+  const current=profile?.property_ids||[];
+
+  const sp=document.getElementById('sp');
+  sp.style.display='block';
+  sp.innerHTML=`<div class="panel-wrap" onclick="closePanelOverlay(event)">
+    <div class="panel" onclick="event.stopPropagation()">
+      <button class="pc" onclick="closeAdminPanel()">✕</button>
+      <div class="pn">Property access</div>
+      <div class="ps">${escapeHtml(userName||'team member')}</div>
+      <div class="cd">Select which properties this user can access. Leave empty to grant access to all properties.</div>
+      <div style="margin-top:14px">
+        ${STATE.properties.map(p=>`<label style="display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid var(--line-peach);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--kaani-cream)">
+          <input type="checkbox" id="prop-chk-${p.id}" ${current.includes(p.id)?'checked':''} style="width:16px;height:16px;accent-color:var(--kaani-orange);cursor:pointer">
+          <span style="font-weight:500">${escapeHtml(p.name)}</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--gray-text)">${escapeHtml(p.code)}</span>
+        </label>`).join('')}
+      </div>
+      <button class="btn btnp" style="width:100%;margin-top:14px" onclick="savePropertyAccess('${userId}')">Save access</button>
+    </div>
+  </div>`;
+}
+
+function closeAdminPanel(){document.getElementById('sp').style.display='none';}
+function closePanelOverlay(e){if(e&&!e.target.classList.contains('panel-wrap'))return;closeAdminPanel();}
+
+async function savePropertyAccess(userId){
+  const selected=[];
+  STATE.properties.forEach(p=>{
+    const cb=document.getElementById('prop-chk-'+p.id);
+    if(cb&&cb.checked)selected.push(p.id);
+  });
+  const{error}=await sb.from('user_profiles').update({property_ids:selected.length>0?selected:null}).eq('user_id',userId);
+  if(error){toast(error.message,true);return;}
+  toast('Property access updated');
+  closeAdminPanel();
+  renderAdminPane();
 }
 
 // ------------- INIT -------------
