@@ -21,6 +21,16 @@ const STATE = {
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const AVCOLS = ['#E1F5EE/#0F6E56','#E6F1FB/#185FA5','#FAEEDA/#633806','#FBEAF0/#72243E','#EAF3DE/#27500A','#EEEDFE/#3C3489'];
+// Known placeholder/operator emails — treated as no real email
+// Add more here as you discover them
+const PLACEHOLDER_EMAILS = [
+  'info@destinosentreazules.com',
+];
+function isPlaceholderEmail(e){
+  if(!e)return false;
+  return PLACEHOLDER_EMAILS.includes(e.toLowerCase().trim());
+}
+
 
 // ------------- HELPERS -------------
 function avc(n){if(!n)return AVCOLS[0].split('/');let h=0;for(const c of n)h=(h*31+c.charCodeAt(0))%AVCOLS.length;return AVCOLS[h].split('/');}
@@ -800,7 +810,8 @@ async function processImport(e){
     const nationalId=isNationalId?identity.replace(/^National ID-/i,''):null;
 
     const name=r[idx['Guest Name']]?.trim()||'';
-    const email=r[idx.Email]?.trim()||null;
+    let email=r[idx.Email]?.trim()||null;
+    if(email&&isPlaceholderEmail(email))email=null;  // Skip placeholder/operator emails
     const nationality=r[idx.Nationality]?.trim()||null;
     const address=r[idx.Address]?.trim()||null;
     const dob=extractDOB(address);
@@ -820,7 +831,7 @@ async function processImport(e){
       const{data}=await sb.from('guests').select('id').eq('national_id',nationalId).maybeSingle();
       existing=data;
     }
-    if(!existing&&email){
+    if(!existing&&email&&!isPlaceholderEmail(email)){
       const{data}=await sb.from('guests').select('id').ilike('email',email).maybeSingle();
       existing=data;
     }
