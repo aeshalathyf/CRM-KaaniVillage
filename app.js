@@ -1198,24 +1198,176 @@ async function downloadCampaignReport(){
 // IMPORT — Ezee CSV with proper deduplication
 // ============================================================================
 function renderImportPane(){
-  document.getElementById('pane-import').innerHTML=`
-    <div class="card" style="max-width:560px">
-      <div class="ct" style="margin-bottom:8px">Import Ezee guest list</div>
-      <div class="cd">Upload an Ezee daily guest list CSV. The system matches by passport / national ID — guests are never duplicated. New stays are added; existing guest profiles get updated.</div>
-      <div style="margin-bottom:12px">
-        <label style="font-size:13px;color:#5F5E5A;display:block;margin-bottom:6px">Property</label>
-        <select id="imp-prop" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid #E8E6E0;font-family:inherit">
-          ${STATE.properties.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
-        </select>
+  const el = document.getElementById('pane-import');
+  el.innerHTML=`
+    <div class="g2">
+      <div class="card">
+        <div class="ch"><div class="ct">Import from Ezee</div></div>
+        <div class="cd">Upload one or more Ezee daily guest list CSVs at once. Guests are matched by passport / national ID — no duplicates ever created.</div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600;display:block;margin-bottom:6px">Property</label>
+          <select id="imp-prop" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border-subtle);font-family:inherit;background:#fff;font-size:13px">
+            ${STATE.properties.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div id="imp-dropzone" style="border:2px dashed var(--kaani-peach);border-radius:14px;padding:40px 24px;text-align:center;background:var(--kaani-cream-deep);cursor:pointer;transition:all 0.2s"
+          ondragover="event.preventDefault();this.style.borderColor='var(--kaani-orange)';this.style.background='var(--kaani-primary-soft)'"
+          ondragleave="this.style.borderColor='var(--kaani-peach)';this.style.background='var(--kaani-cream-deep)'"
+          ondrop="handleDrop(event)"
+          onclick="document.getElementById('imp-file').click()">
+          <div style="font-size:32px;margin-bottom:10px">📂</div>
+          <div style="font-size:14px;font-weight:600;color:var(--black);margin-bottom:6px">Drop CSV files here</div>
+          <div style="font-size:13px;color:var(--gray-text)">or <span style="color:var(--kaani-orange);text-decoration:underline;cursor:pointer">browse to upload</span></div>
+          <div style="font-size:11px;color:var(--gray-muted);margin-top:8px">Multiple files supported · Ezee guest list format</div>
+          <input type="file" id="imp-file" accept=".csv" multiple style="display:none" onchange="handleFileSelect(event)"/>
+        </div>
+
+        <div id="imp-file-list" style="margin-top:14px"></div>
+        <div id="imp-progress-bar" style="display:none;margin-top:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-text);margin-bottom:6px">
+            <span id="imp-progress-label">Processing...</span>
+            <span id="imp-progress-pct">0%</span>
+          </div>
+          <div style="height:6px;background:var(--line-peach);border-radius:3px;overflow:hidden">
+            <div id="imp-progress-fill" style="height:100%;background:var(--kaani-orange);border-radius:3px;width:0%;transition:width 0.3s"></div>
+          </div>
+        </div>
+        <div id="imp-result" style="margin-top:12px;font-size:13px"></div>
       </div>
-      <div class="izone"><div style="font-size:24px;margin-bottom:8px">+</div>Drop CSV or <label>browse to upload<input type="file" accept=".csv" style="display:none" onchange="processImport(event)"></label></div>
-      <div id="imp-msg" style="margin-top:14px;font-size:13px"></div>
-      <div id="imp-progress" style="margin-top:8px"></div>
+
+      <div class="card">
+        <div class="ch"><div class="ct">Upload history</div><button class="btn" style="font-size:11px" onclick="loadImportHistory()">Refresh</button></div>
+        <div id="imp-history"><div class="loading">Loading history</div></div>
+      </div>
     </div>`;
+
+  loadImportHistory();
 }
 
+function handleDrop(event){
+  event.preventDefault();
+  const dz = document.getElementById('imp-dropzone');
+  dz.style.borderColor='var(--kaani-peach)';
+  dz.style.background='var(--kaani-cream-deep)';
+  const files = Array.from(event.dataTransfer.files).filter(f=>f.name.endsWith('.csv'));
+  if(files.length===0){toast('Please drop CSV files only',true);return;}
+  showFileList(files);
+}
+
+function handleFileSelect(event){
+  const files = Array.from(event.target.files);
+  if(files.length===0)return;
+  showFileList(files);
+}
+
+function showFileList(files){
+  window._pendingFiles = files;
+  const el = document.getElementById('imp-file-list');
+  el.innerHTML=`
+    <div style="margin-bottom:10px">
+      <div class="sec">${files.length} file${files.length>1?'s':''} selected</div>
+      ${files.map((f,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:var(--kaani-cream-deep);border:1px solid var(--line-peach);margin-bottom:6px;font-size:13px">
+        <span style="font-size:16px">📄</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.name)}</div>
+          <div style="font-size:11px;color:var(--gray-text)">${(f.size/1024).toFixed(1)} KB</div>
+        </div>
+        <div id="file-status-${i}" style="font-size:11px;color:var(--gray-muted)">Pending</div>
+      </div>`).join('')}
+    </div>
+    <button class="btn btnp" style="width:100%" onclick="startImport()">Import ${files.length} file${files.length>1?'s':''}</button>`;
+}
+
+async function startImport(){
+  const files = window._pendingFiles;
+  if(!files||files.length===0){toast('No files selected',true);return;}
+  const propId = parseInt(document.getElementById('imp-prop').value);
+  const propName = STATE.properties.find(p=>p.id===propId)?.name||'Unknown';
+
+  const progBar = document.getElementById('imp-progress-bar');
+  const progLabel = document.getElementById('imp-progress-label');
+  const progPct = document.getElementById('imp-progress-pct');
+  const progFill = document.getElementById('imp-progress-fill');
+  progBar.style.display='block';
+
+  let totalAdded=0, totalUpdated=0, totalErrors=0;
+
+  for(let fi=0; fi<files.length; fi++){
+    const file = files[fi];
+    const statusEl = document.getElementById('file-status-'+fi);
+    if(statusEl) statusEl.innerHTML='<span style="color:var(--kaani-orange)">Processing...</span>';
+
+    progLabel.textContent = `Processing ${fi+1} of ${files.length}: ${file.name}`;
+    progPct.textContent = Math.round((fi/files.length)*100)+'%';
+    progFill.style.width = Math.round((fi/files.length)*100)+'%';
+
+    try {
+      const text = await file.text();
+      const result = await importCSV(text, propId);
+      totalAdded += result.added;
+      totalUpdated += result.updated;
+      totalErrors += result.errors;
+
+      if(statusEl) statusEl.innerHTML=`<span style="color:var(--success)">✓ ${result.added} new · ${result.updated} updated</span>`;
+    } catch(err) {
+      totalErrors++;
+      if(statusEl) statusEl.innerHTML=`<span style="color:var(--danger)">✗ Error: ${err.message}</span>`;
+    }
+  }
+
+  progPct.textContent = '100%';
+  progFill.style.width = '100%';
+  progLabel.textContent = 'Complete!';
+
+  // Log the import
+  await sb.from('campaigns').insert({
+    name: `Ezee import · ${propName} · ${new Date().toLocaleDateString()}`,
+    campaign_type: 'custom',
+    notes: `Imported ${files.length} file(s). Added: ${totalAdded}, Updated: ${totalUpdated}, Errors: ${totalErrors}`,
+    status: 'sent',
+    sent_at: new Date().toISOString(),
+    emails_sent: totalAdded + totalUpdated,
+    created_by: STATE.user.id
+  }).catch(()=>{});
+
+  const result = document.getElementById('imp-result');
+  result.innerHTML=`<div style="padding:12px 14px;background:var(--success-bg);border-radius:10px;color:var(--success);font-weight:500">
+    ✓ Import complete — ${totalAdded} new guests · ${totalUpdated} updated · ${totalErrors} errors
+  </div>`;
+
+  toast(`Done! ${totalAdded} new guests, ${totalUpdated} updated`);
+  await loadInitialData();
+  loadImportHistory();
+  window._pendingFiles = null;
+}
+
+async function loadImportHistory(){
+  const el = document.getElementById('imp-history');
+  if(!el) return;
+  const{data} = await sb.from('campaigns').select('*').eq('campaign_type','custom').ilike('name','Ezee import%').order('sent_at',{ascending:false}).limit(20);
+  if(!data||data.length===0){
+    el.innerHTML='<div class="empty">No imports yet</div>';
+    return;
+  }
+  el.innerHTML = data.map(c=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--line-peach);font-size:13px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;color:var(--black)">${escapeHtml(c.name)}</div>
+          <div style="font-size:11px;color:var(--gray-text);margin-top:3px">${escapeHtml(c.notes||'')}</div>
+        </div>
+        <div style="font-size:11px;color:var(--gray-muted);white-space:nowrap">${c.sent_at?new Date(c.sent_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):''}</div>
+      </div>
+    </div>`).join('');
+}
+
+
+
+// ============================================================================
+// CSV IMPORT ENGINE
+// ============================================================================
 function parseCSV(text){
-  // Strip BOM (Byte Order Mark) if present - common in Windows CSV exports
   if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
   const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim());
   if(lines.length<2)return{headers:[],rows:[]};
@@ -1230,7 +1382,6 @@ function parseCSV(text){
     result.push(cur);
     return result;
   }
-  // Strip BOM from individual headers and trim, also remove any quotes
   const headers=parseLine(lines[0]).map(h=>h.replace(/^\uFEFF/,'').replace(/^"|"$/g,'').trim());
   const rows=lines.slice(1).map(parseLine);
   return{headers,rows};
@@ -1246,7 +1397,12 @@ function extractDOB(addr){
   return null;
 }
 
-function parseEzeeDate(d){if(!d)return null;const m=d.match(/(\d{1,2})-(\d{1,2})-(\d{2,4})/);if(!m)return null;const[,dd,mm,yy]=m;const y=yy.length===2?'20'+yy:yy;return`${y}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;}
+function parseEzeeDate(d){
+  if(!d)return null;
+  let m=d.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/);
+  if(m){const[,dd,mm,yy]=m;const y=yy.length===2?'20'+yy:yy;return`${y}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;}
+  return null;
+}
 
 function classifyChannel(source){
   if(!source)return'other';
@@ -1258,120 +1414,92 @@ function classifyChannel(source){
   return'other';
 }
 
-async function processImport(e){
-  const file=e.target.files[0];if(!file)return;
-  const propId=parseInt(document.getElementById('imp-prop').value);
-  const msg=document.getElementById('imp-msg');
-  const prog=document.getElementById('imp-progress');
-  msg.textContent='Reading file...';msg.style.color='#5F5E5A';
+// Known placeholder emails - treated as no real email
+const PLACEHOLDER_EMAILS=['info@destinosentreazules.com'];
+function isPlaceholderEmail(e){if(!e)return false;return PLACEHOLDER_EMAILS.includes(e.toLowerCase().trim());}
 
-  const text=await file.text();
+async function importCSV(text, propId){
   const{headers,rows}=parseCSV(text);
   const idx={};headers.forEach((h,i)=>idx[h]=i);
 
   const required=['Identity','Guest Name','Arrival','Departure','Nights'];
-  for(const r of required){if(!(r in idx)){msg.textContent='Missing column: '+r+'. Found columns: '+headers.join(', ');msg.style.color='#A32D2D';return;}}
+  for(const r of required){
+    if(!(r in idx))throw new Error('Missing column: '+r+'. Found: '+headers.join(', '));
+  }
 
-  msg.textContent=`Processing ${rows.length} rows...`;
-  let guestsNew=0,guestsUpdated=0,staysNew=0,errors=0;
+  let added=0,updated=0,errors=0;
 
   for(let i=0;i<rows.length;i++){
     const r=rows[i];
-    const identity=r[idx.Identity]?.trim();if(!identity)continue;
+    const identity=r[idx['Identity']]?.trim();
+    if(!identity)continue;
 
     const isNationalId=identity.toLowerCase().includes('national id');
     const passport=isNationalId?null:identity.replace(/^Passport-/i,'');
-    const nationalId=isNationalId?identity.replace(/^National ID-/i,''):null;
+    const nationalId=isNationalId?identity.replace(/^National\s*ID-/i,''):null;
 
     const name=r[idx['Guest Name']]?.trim()||'';
-    let email=r[idx.Email]?.trim()||null;
-    if(email&&isPlaceholderEmail(email))email=null;  // Skip placeholder/operator emails
-    const nationality=r[idx.Nationality]?.trim()||null;
-    const address=r[idx.Address]?.trim()||null;
+    let email=r[idx['Email']]?.trim()||null;
+    if(email&&isPlaceholderEmail(email))email=null;
+    const nationality=r[idx['Nationality']]?.trim()||null;
+    const address=r[idx['Address']]?.trim()||null;
     const dob=extractDOB(address);
-
     const nameParts=name.replace(/^(Mr\.|Ms\.|Mrs\.|Dr\.)\s+/i,'').trim().split(/\s+/);
     const firstName=nameParts[0]||null;
-    const lastName=nameParts.length>1?nameParts.slice(-1)[0]:null;
+    const lastName=nameParts.length>1?nameParts[nameParts.length-1]:null;
 
-    // Find or create guest
-    let guestId;
-    let existing=null;
-    if(passport){
-      const{data}=await sb.from('guests').select('id').eq('passport_number',passport).maybeSingle();
-      existing=data;
+    try {
+      // Find or create guest
+      let guestId;
+      let existing=null;
+      if(passport){const{data}=await sb.from('guests').select('id').eq('passport_number',passport).maybeSingle();existing=data;}
+      if(!existing&&nationalId){const{data}=await sb.from('guests').select('id').eq('national_id',nationalId).maybeSingle();existing=data;}
+      if(!existing&&email&&!isPlaceholderEmail(email)){const{data}=await sb.from('guests').select('id').ilike('email',email).maybeSingle();existing=data;}
+
+      if(existing){
+        guestId=existing.id;
+        const updates={full_name:name,first_name:firstName,last_name:lastName};
+        if(email)updates.email=email;
+        if(nationality)updates.nationality=nationality;
+        if(dob)updates.date_of_birth=dob;
+        if(passport)updates.passport_number=passport;
+        if(nationalId)updates.national_id=nationalId;
+        await sb.from('guests').update(updates).eq('id',guestId);
+        updated++;
+      } else {
+        const guestType=r[idx['Guest Type']]?.includes('Local')?'local':'tourist';
+        const{data,error}=await sb.from('guests').insert({full_name:name,first_name:firstName,last_name:lastName,email,nationality,date_of_birth:dob,passport_number:passport,national_id:nationalId,guest_type:guestType,created_by:STATE.user.id}).select('id').single();
+        if(error){errors++;continue;}
+        guestId=data.id;
+        added++;
+      }
+
+      // Add stay
+      const arrival=parseEzeeDate(r[idx['Arrival']]);
+      const departure=parseEzeeDate(r[idx['Departure']]);
+      const nights=parseInt(r[idx['Nights']])||0;
+      const source=r[idx['Source']]?.trim()||null;
+      const status=(r[idx['Status']]?.toLowerCase().replace(/\s+/g,'_'))||'reservation';
+      const paxStr=r[idx['Pax']]||'';
+      const paxMatch=paxStr.match(/(\d+)\s*\(A\)\s*\/\s*(\d+)\s*\(C\)/);
+      const paxA=paxMatch?+paxMatch[1]:1;
+      const paxC=paxMatch?+paxMatch[2]:0;
+
+      const{data:existingStay}=await sb.from('stays').select('id').eq('guest_id',guestId).eq('property_id',propId).eq('arrival_date',arrival).maybeSingle();
+
+      const stayData={guest_id:guestId,property_id:propId,arrival_date:arrival,departure_date:departure,nights,room_number:r[idx['Room']]?.trim()||null,rate_type:r[idx['Rate Type']]?.trim()||null,pax_adults:paxA,pax_children:paxC,source,channel_type:classifyChannel(source),status,reservation_remark:r[idx['Reservation Remark']]?.trim()||null};
+
+      if(existingStay){
+        await sb.from('stays').update(stayData).eq('id',existingStay.id);
+      } else {
+        await sb.from('stays').insert(stayData);
+      }
+    } catch(err){
+      errors++;
     }
-    if(!existing&&nationalId){
-      const{data}=await sb.from('guests').select('id').eq('national_id',nationalId).maybeSingle();
-      existing=data;
-    }
-    if(!existing&&email&&!isPlaceholderEmail(email)){
-      const{data}=await sb.from('guests').select('id').ilike('email',email).maybeSingle();
-      existing=data;
-    }
-
-    if(existing){
-      guestId=existing.id;
-      // Update with any new info
-      const updates={full_name:name,first_name:firstName,last_name:lastName};
-      if(email)updates.email=email;
-      if(nationality)updates.nationality=nationality;
-      if(dob)updates.date_of_birth=dob;
-      if(passport)updates.passport_number=passport;
-      if(nationalId)updates.national_id=nationalId;
-      const{error}=await sb.from('guests').update(updates).eq('id',guestId);
-      if(error){errors++;continue;}
-      guestsUpdated++;
-    }else{
-      const guestType=r[idx['Guest Type']]?.includes('Local')?'local':'tourist';
-      const{data,error}=await sb.from('guests').insert({full_name:name,first_name:firstName,last_name:lastName,email,nationality,date_of_birth:dob,passport_number:passport,national_id:nationalId,guest_type:guestType,created_by:STATE.user.id}).select('id').single();
-      if(error){errors++;continue;}
-      guestId=data.id;
-      guestsNew++;
-    }
-
-    // Add stay (deduplicate by guest+arrival+property)
-    const arrival=parseEzeeDate(r[idx.Arrival]);
-    const departure=parseEzeeDate(r[idx.Departure]);
-    const nights=parseInt(r[idx.Nights])||0;
-
-    const{data:existingStay}=await sb.from('stays').select('id').eq('guest_id',guestId).eq('property_id',propId).eq('arrival_date',arrival).maybeSingle();
-
-    const source=r[idx.Source]?.trim()||null;
-    const status=r[idx.Status]?.toLowerCase().replace(' ','_').replace('checked_in','checked_in').replace('checked_out','checked_out')||'reservation';
-    const paxStr=r[idx.Pax]||'';
-    const paxMatch=paxStr.match(/(\d+)\s*\(A\)\s*\/\s*(\d+)\s*\(C\)/);
-    const paxA=paxMatch?+paxMatch[1]:1;const paxC=paxMatch?+paxMatch[2]:0;
-
-    // Try to get rate from Reservation Remark (e.g. "USD 125/PN" or "USD 125/-PR PN")
-    const remark = r[idx['Reservation Remark']]?.trim()||'';
-    let ratePerNight = null;
-    const rateMatch = remark.match(/USD\s*(\d+(?:\.\d+)?)[\s\/\-]*(PR\s*PN|PN|PER\s*NIGHT|PRPN)/i);
-    if(rateMatch) ratePerNight = parseFloat(rateMatch[1]);
-    const totalRev = ratePerNight && nights ? ratePerNight * nights * paxA : null;
-    const channelType = classifyChannel(source);
-    const commPct = getCommissionPct(source, channelType);
-    const commAmt = totalRev ? Math.round(totalRev * commPct / 100 * 100) / 100 : null;
-    const netRev = totalRev ? Math.round(totalRev * (1 - commPct/100) * 100) / 100 : null;
-
-    const stayData={guest_id:guestId,property_id:propId,arrival_date:arrival,departure_date:departure,nights,room_number:r[idx.Room]?.trim()||null,rate_type:r[idx['Rate Type']]?.trim()||null,pax_adults:paxA,pax_children:paxC,source,channel_type:channelType,status,reservation_remark:remark||null,rate_per_night_usd:ratePerNight,total_revenue_usd:totalRev,ota_commission_usd:commAmt,net_revenue_usd:netRev};
-
-    if(existingStay){
-      await sb.from('stays').update(stayData).eq('id',existingStay.id);
-    }else{
-      const{error}=await sb.from('stays').insert(stayData);
-      if(error){errors++;continue;}
-      staysNew++;
-    }
-
-    if(i%10===0){prog.textContent=`Processed ${i+1} of ${rows.length}...`;}
   }
 
-  msg.textContent=`Done: ${guestsNew} new guests, ${guestsUpdated} updated, ${staysNew} new stays, ${errors} errors.`;
-  msg.style.color='#0F6E56';
-  prog.textContent='';
-  await loadInitialData();
-  toast('Import complete');
+  return{added,updated,errors};
 }
 
 // ============================================================================
@@ -1380,81 +1508,33 @@ async function processImport(e){
 async function renderAdminPane(){
   if(STATE.profile.role!=='admin'){document.getElementById('pane-admin').innerHTML='<div class="empty">Admin access required</div>';return;}
   const{data:users}=await sb.from('user_profiles').select('*').order('created_at');
-  const{data:dups}=await sb.from('v_potential_duplicates').select('*').limit(50);
-
-  // Load commission rates fresh
-  const{data:rates} = await sb.from('channel_commission_rates').select('*').order('id');
-  const canEdit = STATE.profile.role === 'admin';
+  const{data:dups}=await sb.from('v_potential_duplicates').select('*').limit(50).catch(()=>({data:[]}));
 
   document.getElementById('pane-admin').innerHTML=`
     <div class="card">
       <div class="ct" style="margin-bottom:10px">Team members</div>
-      <div class="cd">Create users in Supabase → Authentication → Users. Share the CRM URL and their credentials. Assign roles and properties below.</div>
+      <div class="cd">Add team members in Supabase → Authentication → Users → Add user (tick Auto Confirm). They log in here, you assign their role and properties below.</div>
       ${(users||[]).map(u=>`<div class="row">
-        <div style="flex:1;min-width:0"><div class="rn">${escapeHtml(u.full_name||u.user_id)}</div><div style="font-size:11px;color:#5F5E5A">${u.user_id===STATE.user.id?'(you)':''}</div></div>
-        <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border-subtle);font-family:inherit;background:#fff">
+        <div style="flex:1;min-width:0"><div class="rn">${escapeHtml(u.full_name||u.user_id)}</div><div style="font-size:11px;color:var(--gray-text)">${u.role}${u.user_id===STATE.user.id?' · (you)':''}</div></div>
+        <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--border-subtle);font-family:inherit;background:#fff;margin-right:8px">
           <option value="staff" ${u.role==='staff'?'selected':''}>Staff</option>
           <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
           <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
         </select>
-        <button class="btn" style="font-size:11px;padding:6px 12px" onclick="manageProperties('${u.user_id}','${escapeHtml(u.full_name||'')}')">Properties</button>
+        <button class="btn" style="font-size:11px;padding:7px 12px" onclick="manageProperties('${u.user_id}','${escapeHtml(u.full_name||'')}')">Properties</button>
       </div>`).join('')}
     </div>
     <div class="card">
-      <div class="ct" style="margin-bottom:10px">Potential duplicate guests (${dups?.length||0})</div>
-      <div class="cd">These guests have similar details — review and merge if they're the same person.</div>
-      ${(dups||[]).slice(0,20).map(d=>`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(d.name_1)} ↔ ${escapeHtml(d.name_2)}</div><div style="font-size:11px;color:#5F5E5A">${escapeHtml(d.match_reason)}</div></div></div>`).join('')||'<div class="empty">No duplicates detected</div>'}
+      <div class="ct" style="margin-bottom:10px">Potential duplicates (${dups?.length||0})</div>
+      ${(dups||[]).slice(0,15).map(d=>`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(d.name_1)} ↔ ${escapeHtml(d.name_2)}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(d.match_reason)}</div></div></div>`).join('')||'<div class="empty">No duplicates detected</div>'}
     </div>
     <div class="card">
-      <div class="ct" style="margin-bottom:10px">Quick actions</div>
+      <div class="ct" style="margin-bottom:10px">Quick backup</div>
       <div class="btns">
-        <button class="btn" onclick="downloadGuestReport()">Backup all guests (CSV)</button>
-        <button class="btn" onclick="downloadStaysReport()">Backup all stays (CSV)</button>
+        <button class="btn" onclick="downloadGuestReport()">Download all guests (CSV)</button>
+        <button class="btn" onclick="downloadStaysReport()">Download all stays (CSV)</button>
       </div>
-    </div>
-    <div class="card">
-      <div class="ch">
-        <div class="ct">Commission rates by channel</div>
-        <div class="cs">Used to auto-calculate net revenue on import</div>
-      </div>
-      <div class="cd">These rates are applied automatically when you import Ezee CSV files. Update them if your OTA agreements change.</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-          <tr style="border-bottom:1px solid var(--line-peach)">
-            <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Source / Channel</th>
-            <th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Commission %</th>
-            <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Notes</th>
-            ${canEdit?'<th style="padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Edit</th>':''}
-          </tr>
-        </thead>
-        <tbody>
-          ${(rates||[]).map(r=>`<tr style="border-bottom:1px solid var(--line-peach)">
-            <td style="padding:10px;font-weight:500">${escapeHtml(r.source_name)}</td>
-            <td style="padding:10px;text-align:right">
-              ${canEdit
-                ? `<input type="number" id="rate-${r.id}" value="${r.commission_pct}" min="0" max="100" step="0.5" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border-subtle);font-family:inherit;text-align:right">`
-                : r.commission_pct+'%'
-              }
-            </td>
-            <td style="padding:10px;color:var(--gray-text);font-size:12px">${escapeHtml(r.notes||'')}</td>
-            ${canEdit?`<td style="padding:10px"><button class="btn" style="font-size:11px;padding:5px 10px" onclick="saveCommissionRate(${r.id})">Save</button></td>`:''}
-          </tr>`).join('')}
-        </tbody>
-      </table>
     </div>`;
-}
-
-async function saveCommissionRate(id){
-  const input = document.getElementById('rate-'+id);
-  if(!input) return;
-  const pct = parseFloat(input.value);
-  if(isNaN(pct) || pct < 0 || pct > 100){toast('Rate must be between 0 and 100', true);return;}
-  const{error} = await sb.from('channel_commission_rates').update({commission_pct:pct,updated_by:STATE.user.id}).eq('id',id);
-  if(error){toast(error.message, true);return;}
-  toast('Commission rate updated');
-  // Reload rates into STATE
-  const{data} = await sb.from('channel_commission_rates').select('*').eq('active',true);
-  STATE.commissionRates = data || [];
 }
 
 async function updateUserRole(userId,role){
@@ -1466,62 +1546,38 @@ async function updateUserRole(userId,role){
 async function manageProperties(userId,userName){
   const{data:profile}=await sb.from('user_profiles').select('property_ids').eq('user_id',userId).single();
   const current=profile?.property_ids||[];
-
   const sp=document.getElementById('sp');
   sp.style.display='block';
-  sp.innerHTML=`<div class="panel-wrap" onclick="closePanelOverlay(event)">
+  sp.innerHTML=`<div class="panel-wrap" onclick="closePropPanel(event)">
     <div class="panel" onclick="event.stopPropagation()">
-      <button class="pc" onclick="closeAdminPanel()">✕</button>
+      <button class="pc" onclick="closePropPanelDirect()">✕</button>
       <div class="pn">Property access</div>
       <div class="ps">${escapeHtml(userName||'team member')}</div>
-      <div class="cd">Select which properties this user can access. Leave empty to grant access to all properties.</div>
-      <div style="margin-top:14px">
-        ${STATE.properties.map(p=>`<label style="display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid var(--line-peach);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--kaani-cream)">
-          <input type="checkbox" id="prop-chk-${p.id}" ${current.includes(p.id)?'checked':''} style="width:16px;height:16px;accent-color:var(--kaani-orange);cursor:pointer">
-          <span style="font-weight:500">${escapeHtml(p.name)}</span>
-          <span style="margin-left:auto;font-size:11px;color:var(--gray-text)">${escapeHtml(p.code)}</span>
-        </label>`).join('')}
-      </div>
+      <div class="cd">Select which properties this user can access. Leave all unchecked to grant access to all properties.</div>
+      ${STATE.properties.map(p=>`<label style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line-peach);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--kaani-cream)">
+        <input type="checkbox" id="prop-chk-${p.id}" ${current.includes(p.id)?'checked':''} style="width:16px;height:16px;accent-color:var(--kaani-orange);cursor:pointer">
+        <span style="font-weight:500">${escapeHtml(p.name)}</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--gray-text)">${escapeHtml(p.code)}</span>
+      </label>`).join('')}
       <button class="btn btnp" style="width:100%;margin-top:14px" onclick="savePropertyAccess('${userId}')">Save access</button>
     </div>
   </div>`;
 }
 
-function closeAdminPanel(){document.getElementById('sp').style.display='none';}
-function closePanelOverlay(e){if(e&&!e.target.classList.contains('panel-wrap'))return;closeAdminPanel();}
+function closePropPanel(e){if(e&&!e.target.classList.contains('panel-wrap'))return;closePropPanelDirect();}
+function closePropPanelDirect(){document.getElementById('sp').style.display='none';}
 
 async function savePropertyAccess(userId){
-  const selected=[];
-  STATE.properties.forEach(p=>{
-    const cb=document.getElementById('prop-chk-'+p.id);
-    if(cb&&cb.checked)selected.push(p.id);
-  });
+  const selected=STATE.properties.map(p=>p.id).filter(id=>{const cb=document.getElementById('prop-chk-'+id);return cb&&cb.checked;});
   const{error}=await sb.from('user_profiles').update({property_ids:selected.length>0?selected:null}).eq('user_id',userId);
   if(error){toast(error.message,true);return;}
   toast('Property access updated');
-  closeAdminPanel();
+  closePropPanelDirect();
   renderAdminPane();
 }
 
-async function changePassword(){
-  const current = prompt('Current password (to verify):');
-  if(!current) return;
-  // Re-authenticate first
-  const {error: authErr} = await sb.auth.signInWithPassword({
-    email: STATE.user.email, password: current
-  });
-  if(authErr){toast('Current password incorrect', true); return;}
-
-  const newPwd = prompt('New password (min 6 characters):');
-  if(!newPwd || newPwd.length < 6){toast('Password must be at least 6 characters', true); return;}
-  const confirm = prompt('Confirm new password:');
-  if(newPwd !== confirm){toast('Passwords do not match', true); return;}
-
-  const{error} = await sb.auth.updateUser({password: newPwd});
-  if(error){toast(error.message, true); return;}
-  toast('Password changed successfully');
-}
-
-// ------------- INIT -------------
+// ============================================================================
+// INIT
+// ============================================================================
 checkSession();
 document.getElementById('login-password').addEventListener('keypress',e=>{if(e.key==='Enter')doLogin();});
