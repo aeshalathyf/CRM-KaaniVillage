@@ -17,11 +17,31 @@ const STATE = {
   guestsPerPage: 50,
   selectedGuestId: null,
   chartsRendered: false,
+  commissionRates: [],  // channel commission rates from DB
   selectedPropertyId: null,  // null = All Properties, or a specific property ID number
 };
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const AVCOLS = ['#E1F5EE/#0F6E56','#E6F1FB/#185FA5','#FAEEDA/#633806','#FBEAF0/#72243E','#EAF3DE/#27500A','#EEEDFE/#3C3489'];
+
+// Calculate commission and net revenue for a stay
+function calcNetRevenue(source, channelType, totalRevenue){
+  if(!totalRevenue || totalRevenue === 0) return 0;
+  const rates = STATE.commissionRates;
+  // Exact source match
+  let rate = rates.find(r => r.source_name.toLowerCase() === (source||'').toLowerCase());
+  // Fall back to channel type default
+  if(!rate) rate = rates.find(r => r.source_name === 'DEFAULT_' + (channelType||'OTA').toUpperCase());
+  const pct = rate ? parseFloat(rate.commission_pct) : 0;
+  return Math.round(totalRevenue * (1 - pct / 100) * 100) / 100;
+}
+
+function getCommissionPct(source, channelType){
+  const rates = STATE.commissionRates;
+  let rate = rates.find(r => r.source_name.toLowerCase() === (source||'').toLowerCase());
+  if(!rate) rate = rates.find(r => r.source_name === 'DEFAULT_' + (channelType||'OTA').toUpperCase());
+  return rate ? parseFloat(rate.commission_pct) : 0;
+}
 
 // 6-MONTH PLAN DATA
 const PLAN_MONTHS = [
@@ -165,6 +185,15 @@ async function showApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('user-display').textContent=`${STATE.profile.full_name||STATE.user.email} (${STATE.profile.role})`;
+  // Add change password button to user info
+  const userInfo = document.querySelector('.user-info');
+  if(userInfo && !document.getElementById('change-pwd-btn')){
+    const pwdBtn = document.createElement('button');
+    pwdBtn.id = 'change-pwd-btn';
+    pwdBtn.textContent = 'Change password';
+    pwdBtn.onclick = changePassword;
+    userInfo.insertBefore(pwdBtn, userInfo.lastElementChild);
+  }
   if(STATE.profile.role==='admin'){
     document.getElementById('admin-tab').style.display='inline-block';
   }
@@ -238,16 +267,18 @@ async function selectProperty(propId){
 }
 
 async function loadInitialData(){
-  const[propsRes,tagsRes,tplRes,countRes]=await Promise.all([
+  const[propsRes,tagsRes,tplRes,countRes,ratesRes]=await Promise.all([
     sb.from('properties').select('*').order('id'),
     sb.from('tags').select('*').order('name'),
     sb.from('email_templates').select('*').order('id'),
-    sb.from('guests').select('*',{count:'exact',head:true})
+    sb.from('guests').select('*',{count:'exact',head:true}),
+    sb.from('channel_commission_rates').select('*').eq('active',true)
   ]);
   STATE.properties=propsRes.data||[];
   STATE.tags=tagsRes.data||[];
   STATE.templates=tplRes.data||[];
   STATE.guestsTotalCount=countRes.count||0;
+  STATE.commissionRates=ratesRes.data||[];
   document.getElementById('app-subtitle').textContent=`${STATE.guestsTotalCount.toLocaleString()} guests · ${STATE.properties.filter(p=>p.active).length} properties`;
 }
 
@@ -518,6 +549,48 @@ async function renderDashboard(){
   generateInsights(s,q,sourceCounts,natCounts,typeCounts,nDist);
 }
 
+
+function generateInsights(s,q,sources,nats,types,nightsDist){
+  const el=document.getElementById('insights-body');
+  if(!el)return;
+  const insights=[];
+  const totalStays=Object.values(sources).reduce((a,b)=>a+b,0);
+  const totalGuests=Object.values(nats).reduce((a,b)=>a+b,0);
+
+  // Source concentration
+  if(totalStays>0){
+    const top=Object.entries(sources).sort((a,b)=>b[1]-a[1])[0];
+    const pct=Math.round(top[1]/totalStays*100);
+    if(pct>40)insights.push({title:'Source concentration risk.',body:`${pct}% of stays come through ${srcShort(top[0])}. Diversifying reduces OTA dependency and commission costs.`});
+  }
+
+  // Nationality dominance
+  if(totalGuests>0){
+    const top=Object.entries(nats).sort((a,b)=>b[1]-a[1])[0];
+    const pct=Math.round(top[1]/totalGuests*100);
+    if(pct>30)insights.push({title:`${top[0]} market dominance.`,body:`${pct}% of guests are from ${top[0]}. Consider ${top[0]==='Spain'?'Spanish-language content and a Destinos relationship strategy':'targeted campaigns for this market'}.`});
+  }
+
+  // Long stay loyalty
+  const totalN=Object.values(nightsDist).reduce((a,b)=>a+b,0);
+  const longStays=Object.entries(nightsDist).filter(([n])=>+n>=7).reduce((a,[,v])=>a+v,0);
+  if(totalN>0&&longStays/totalN>0.3)insights.push({title:'Long-stay loyalty opportunity.',body:`${Math.round(longStays/totalN*100)}% of stays are 7+ nights — these guests are your highest value win-back targets.`});
+
+  // Email gap
+  if((q.pct_email||0)<90)insights.push({title:'Email capture gap.',body:`Only ${q.pct_email||0}% of guests have an email. Every percentage point here is more reach for your campaigns.`});
+
+  // Direct booking gap
+  const directCount=Object.entries(sources).filter(([s])=>s&&s.toUpperCase().includes('DIRECT')).reduce((a,[,v])=>a+v,0);
+  if(totalStays>0){
+    const directPct=Math.round(directCount/totalStays*100);
+    if(directPct<25)insights.push({title:'Direct booking upside.',body:`${directPct}% of bookings are direct vs 25–30% industry benchmark. The win-back campaign in your Plan tab targets this directly.`});
+  }
+
+  el.innerHTML=insights.length
+    ? insights.map(i=>`<div class="insight-item"><strong>${i.title}</strong> ${i.body}</div>`).join('')
+    : '<div style="font-size:13px;color:var(--gray-text);padding:10px 0">Import more data across properties to generate meaningful insights.</div>';
+}
+
 async function renderGuestsPane(){
   const el=document.getElementById('pane-guests');
   el.innerHTML=`
@@ -525,7 +598,9 @@ async function renderGuestsPane(){
     <div class="toolbar">
       <input type="text" id="gsearch" placeholder="Search name, email, nationality..." />
       <select id="gfst"><option value="">All statuses</option><option value="prospect">Prospect</option><option value="first_time">First-time</option><option value="repeat">Repeat</option><option value="vip">VIP</option><option value="lapsed">Lapsed</option></select>
+      <select id="gfsrc"><option value="">All sources</option></select>
       <select id="gfnat"><option value="">All nationalities</option></select>
+      <select id="gfbday"><option value="">All guests</option><option value="7">Birthday in 7 days</option><option value="30">Birthday in 30 days</option><option value="60">Birthday in 60 days</option></select>
     </div>
     <div id="glist"></div>
     <div class="pagination" id="g-pagination"></div>`;
@@ -548,15 +623,23 @@ async function renderGuestsPane(){
     <div class="sm"><div class="sl">With phone</div><div class="sv">${qual?.has_phone||0}</div><div class="ss">${qual?.pct_phone||0}%</div></div>
     <div class="sm"><div class="sl">With DOB</div><div class="sv">${qual?.has_dob||0}</div><div class="ss">${qual?.pct_dob||0}%</div></div>`;
 
-  // Populate nationality filter
-  const{data:nats}=await sb.from('guests').select('nationality').not('nationality','is',null).limit(2000);
-  const uniq=[...new Set((nats||[]).map(n=>n.nationality))].sort();
+  // Populate nationality + source filters
+  const[natsRes, sourcesRes]=await Promise.all([
+    sb.from('guests').select('nationality').not('nationality','is',null).limit(2000),
+    sb.from('stays').select('source').not('source','is',null).limit(2000)
+  ]);
+  const uniq=[...new Set((natsRes.data||[]).map(n=>n.nationality))].sort();
   const ne=document.getElementById('gfnat');
-  uniq.forEach(n=>{const o=document.createElement('option');o.value=n;o.text=n;ne.appendChild(o);});
+  if(ne){uniq.forEach(n=>{const o=document.createElement('option');o.value=n;o.text=n;ne.appendChild(o);});}
+  const uniqSrc=[...new Set((sourcesRes.data||[]).map(s=>s.source))].sort();
+  const se=document.getElementById('gfsrc');
+  if(se){uniqSrc.forEach(s=>{const o=document.createElement('option');o.value=s;o.text=srcShort(s);se.appendChild(o);});}
 
   document.getElementById('gsearch').oninput=()=>{STATE.guestsPage=0;loadGuests();};
   document.getElementById('gfst').onchange=()=>{STATE.guestsPage=0;loadGuests();};
+  document.getElementById('gfsrc').onchange=()=>{STATE.guestsPage=0;loadGuests();};
   document.getElementById('gfnat').onchange=()=>{STATE.guestsPage=0;loadGuests();};
+  document.getElementById('gfbday').onchange=()=>{STATE.guestsPage=0;loadGuests();};
 
   loadGuests();
 }
@@ -565,31 +648,54 @@ let guestSearchTimer;
 async function loadGuests(){
   clearTimeout(guestSearchTimer);
   guestSearchTimer=setTimeout(async()=>{
-    const q=document.getElementById('gsearch').value.trim();
-    const fst=document.getElementById('gfst').value;
-    const fnat=document.getElementById('gfnat').value;
+    const q=document.getElementById('gsearch')?.value.trim()||'';
+    const fst=document.getElementById('gfst')?.value||'';
+    const fnat=document.getElementById('gfnat')?.value||'';
+    const fsrc=document.getElementById('gfsrc')?.value||'';
+    const fbday=document.getElementById('gfbday')?.value||'';
     const from=STATE.guestsPage*STATE.guestsPerPage;
     const to=from+STATE.guestsPerPage-1;
 
     let query=sb.from('guests').select('*',{count:'exact'}).order('last_stay_date',{ascending:false,nullsFirst:false}).range(from,to);
+
+    // Property filter
     if(STATE.selectedPropertyId !== null){
       const propGuestIds = await getGuestIdsForProperty();
-      if(propGuestIds.length === 0){
-        STATE.currentGuests = [];
-        renderGuestList(0);
-        return;
-      }
+      if(propGuestIds.length === 0){STATE.currentGuests=[];renderGuestList(0);return;}
       query = query.in('id', propGuestIds);
     }
+
+    // Text search
     if(q){query=query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,nationality.ilike.%${q}%`);}
+
+    // Status filter
     if(fst)query=query.eq('lead_status',fst);
+
+    // Nationality filter
     if(fnat)query=query.eq('nationality',fnat);
+
+    // Source filter — get guest IDs who have a stay with this source
+    if(fsrc){
+      const{data:srcStays}=await sb.from('stays').select('guest_id').eq('source',fsrc);
+      const srcIds=[...new Set((srcStays||[]).map(s=>s.guest_id))];
+      if(srcIds.length===0){STATE.currentGuests=[];renderGuestList(0);return;}
+      query=query.in('id',srcIds);
+    }
 
     const{data,error,count}=await query;
     if(error){toast('Load error: '+error.message,true);return;}
 
-    STATE.currentGuests=data||[];
-    renderGuestList(count||0);
+    // Birthday filter — client side (needs date math)
+    let filtered=data||[];
+    if(fbday&&+fbday>0){
+      filtered=filtered.filter(g=>{
+        const d=bdayDays(g.date_of_birth);
+        return d!==null&&d>=0&&d<=+fbday;
+      });
+    }
+
+    STATE.currentGuests=filtered;
+    renderGuestList(fbday?filtered.length:(count||0));
   },200);
 }
 
@@ -604,7 +710,7 @@ function renderGuestList(totalCount){
         <div class="av" style="background:${bg};color:${fg}">${ini(g.full_name)}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.full_name)}</div>
-          <div style="font-size:12px;color:#5F5E5A">${g.date_of_birth?'DOB: '+fmtDate(g.date_of_birth)+(age?' · age '+age:''):escapeHtml(g.email||'no email')}</div>
+          <div style="font-size:12px;color:var(--gray-text)">${g.date_of_birth?'DOB: '+fmtDate(g.date_of_birth)+(age?' · age '+age:'')+(bdayDays(g.date_of_birth)!==null&&bdayDays(g.date_of_birth)<=30?' <span style="color:var(--kaani-orange);font-weight:600">🎂 in '+bdayDays(g.date_of_birth)+'d</span>':''):escapeHtml(g.email||'no email')}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
           <span class="badge ${g.lead_status==='vip'?'bu':g.lead_status==='repeat'?'be':g.lead_status==='lapsed'?'bg':'bm'}">${g.lead_status.replace('_',' ')}</span>
@@ -1213,7 +1319,18 @@ async function processImport(e){
     const paxMatch=paxStr.match(/(\d+)\s*\(A\)\s*\/\s*(\d+)\s*\(C\)/);
     const paxA=paxMatch?+paxMatch[1]:1;const paxC=paxMatch?+paxMatch[2]:0;
 
-    const stayData={guest_id:guestId,property_id:propId,arrival_date:arrival,departure_date:departure,nights,room_number:r[idx.Room]?.trim()||null,rate_type:r[idx['Rate Type']]?.trim()||null,pax_adults:paxA,pax_children:paxC,source,channel_type:classifyChannel(source),status,reservation_remark:r[idx['Reservation Remark']]?.trim()||null};
+    // Try to get rate from Reservation Remark (e.g. "USD 125/PN" or "USD 125/-PR PN")
+    const remark = r[idx['Reservation Remark']]?.trim()||'';
+    let ratePerNight = null;
+    const rateMatch = remark.match(/USD\s*(\d+(?:\.\d+)?)[\s\/\-]*(PR\s*PN|PN|PER\s*NIGHT|PRPN)/i);
+    if(rateMatch) ratePerNight = parseFloat(rateMatch[1]);
+    const totalRev = ratePerNight && nights ? ratePerNight * nights * paxA : null;
+    const channelType = classifyChannel(source);
+    const commPct = getCommissionPct(source, channelType);
+    const commAmt = totalRev ? Math.round(totalRev * commPct / 100 * 100) / 100 : null;
+    const netRev = totalRev ? Math.round(totalRev * (1 - commPct/100) * 100) / 100 : null;
+
+    const stayData={guest_id:guestId,property_id:propId,arrival_date:arrival,departure_date:departure,nights,room_number:r[idx.Room]?.trim()||null,rate_type:r[idx['Rate Type']]?.trim()||null,pax_adults:paxA,pax_children:paxC,source,channel_type:channelType,status,reservation_remark:remark||null,rate_per_night_usd:ratePerNight,total_revenue_usd:totalRev,ota_commission_usd:commAmt,net_revenue_usd:netRev};
 
     if(existingStay){
       await sb.from('stays').update(stayData).eq('id',existingStay.id);
@@ -1241,10 +1358,14 @@ async function renderAdminPane(){
   const{data:users}=await sb.from('user_profiles').select('*').order('created_at');
   const{data:dups}=await sb.from('v_potential_duplicates').select('*').limit(50);
 
+  // Load commission rates fresh
+  const{data:rates} = await sb.from('channel_commission_rates').select('*').order('id');
+  const canEdit = STATE.profile.role === 'admin';
+
   document.getElementById('pane-admin').innerHTML=`
     <div class="card">
       <div class="ct" style="margin-bottom:10px">Team members</div>
-      <div class="cd">Add team members by sharing the login URL — they sign up themselves with email/password, then you assign their role here.</div>
+      <div class="cd">Create users in Supabase → Authentication → Users. Share the CRM URL and their credentials. Assign roles and properties below.</div>
       ${(users||[]).map(u=>`<div class="row">
         <div style="flex:1;min-width:0"><div class="rn">${escapeHtml(u.full_name||u.user_id)}</div><div style="font-size:11px;color:#5F5E5A">${u.user_id===STATE.user.id?'(you)':''}</div></div>
         <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border-subtle);font-family:inherit;background:#fff">
@@ -1266,7 +1387,50 @@ async function renderAdminPane(){
         <button class="btn" onclick="downloadGuestReport()">Backup all guests (CSV)</button>
         <button class="btn" onclick="downloadStaysReport()">Backup all stays (CSV)</button>
       </div>
+    </div>
+    <div class="card">
+      <div class="ch">
+        <div class="ct">Commission rates by channel</div>
+        <div class="cs">Used to auto-calculate net revenue on import</div>
+      </div>
+      <div class="cd">These rates are applied automatically when you import Ezee CSV files. Update them if your OTA agreements change.</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--line-peach)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Source / Channel</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Commission %</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Notes</th>
+            ${canEdit?'<th style="padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600">Edit</th>':''}
+          </tr>
+        </thead>
+        <tbody>
+          ${(rates||[]).map(r=>`<tr style="border-bottom:1px solid var(--line-peach)">
+            <td style="padding:10px;font-weight:500">${escapeHtml(r.source_name)}</td>
+            <td style="padding:10px;text-align:right">
+              ${canEdit
+                ? `<input type="number" id="rate-${r.id}" value="${r.commission_pct}" min="0" max="100" step="0.5" style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid var(--border-subtle);font-family:inherit;text-align:right">`
+                : r.commission_pct+'%'
+              }
+            </td>
+            <td style="padding:10px;color:var(--gray-text);font-size:12px">${escapeHtml(r.notes||'')}</td>
+            ${canEdit?`<td style="padding:10px"><button class="btn" style="font-size:11px;padding:5px 10px" onclick="saveCommissionRate(${r.id})">Save</button></td>`:''}
+          </tr>`).join('')}
+        </tbody>
+      </table>
     </div>`;
+}
+
+async function saveCommissionRate(id){
+  const input = document.getElementById('rate-'+id);
+  if(!input) return;
+  const pct = parseFloat(input.value);
+  if(isNaN(pct) || pct < 0 || pct > 100){toast('Rate must be between 0 and 100', true);return;}
+  const{error} = await sb.from('channel_commission_rates').update({commission_pct:pct,updated_by:STATE.user.id}).eq('id',id);
+  if(error){toast(error.message, true);return;}
+  toast('Commission rate updated');
+  // Reload rates into STATE
+  const{data} = await sb.from('channel_commission_rates').select('*').eq('active',true);
+  STATE.commissionRates = data || [];
 }
 
 async function updateUserRole(userId,role){
@@ -1313,6 +1477,25 @@ async function savePropertyAccess(userId){
   toast('Property access updated');
   closeAdminPanel();
   renderAdminPane();
+}
+
+async function changePassword(){
+  const current = prompt('Current password (to verify):');
+  if(!current) return;
+  // Re-authenticate first
+  const {error: authErr} = await sb.auth.signInWithPassword({
+    email: STATE.user.email, password: current
+  });
+  if(authErr){toast('Current password incorrect', true); return;}
+
+  const newPwd = prompt('New password (min 6 characters):');
+  if(!newPwd || newPwd.length < 6){toast('Password must be at least 6 characters', true); return;}
+  const confirm = prompt('Confirm new password:');
+  if(newPwd !== confirm){toast('Passwords do not match', true); return;}
+
+  const{error} = await sb.auth.updateUser({password: newPwd});
+  if(error){toast(error.message, true); return;}
+  toast('Password changed successfully');
 }
 
 // ------------- INIT -------------
