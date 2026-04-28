@@ -848,6 +848,14 @@ async function saveGuestNote(guestId){
 // ============================================================================
 // ACTIONS — uses email_templates from database
 // ============================================================================
+const WA_TEMPLATES = {
+  review_request: `Hi [Name]! 👋 Thank you for staying at {{property_name}}. We hope you had a wonderful time in Maafushi! 🌊\n\nCould you spare 2 minutes to leave us a Google review? It means the world to our small team 🙏\n\n[YOUR GOOGLE REVIEW LINK]\n\nThank you! 😊\nKaani Hotels`,
+  winback: `Hi [Name]! 👋 We loved having you at {{property_name}} — hope Maafushi left you with beautiful memories! 🌴\n\nSpecial offer just for you — book direct and save 10%:\n\n📎 [DIRECT BOOKING LINK]\n⏰ Valid until: [DATE]\n\nReply to check availability 😊\nKaani Hotels`,
+  upsell: `Hi [Name]! 🌺 Hope you're loving your stay!\n\nWe can arrange:\n🐠 Island hopping & snorkelling — $30/pp\n💆 Relaxation massage — $50/pp\n🍽️ Lunch + dinner upgrade — $25/pp/day\n🐬 Sunset dolphin cruise — $35/pp\n\nJust reply here or pop by reception! 😊\nKaani Hotels`,
+  birthday: `Hi [Name]! 🎂🎉 Wishing you a very happy birthday from all of us at {{property_name}}! 🌺\n\nAs a birthday gift — complimentary room upgrade on your next direct booking. Just mention this message when you book 🎁\n\nHope your day is as beautiful as the Maldives! 🌊\nKaani Hotels`,
+  seasonal: `Hi [Name]! 🌴 Hope you have wonderful memories of your time with us in Maafushi!\n\nExclusive offer for past guests:\n✨ [OFFER DESCRIPTION]\n📅 Travel: [DATES]\n⏰ Book by: [DEADLINE]\n📎 [DIRECT BOOKING LINK]\n\nReply to check availability 😊\nKaani Hotels`
+};
+
 async function renderActionsPane(){
   const el=document.getElementById('pane-actions');
   el.innerHTML=`
@@ -889,6 +897,7 @@ async function renderAction(key,btn){
   let segmentLabel='';
 
   const actionPropGuestIds = await getGuestIdsForProperty();
+  const tplPropName = STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Kaani Hotels';
   const propLabel = STATE.selectedPropertyId === null ? '' : ' (' + (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'') + ')';
   function filterByProp(guestList){
     if(!actionPropGuestIds) return guestList;
@@ -953,12 +962,27 @@ async function renderAction(key,btn){
       <div class="sec">Body template</div>
       <div class="tpl" id="tpl-body">${escapeHtml(tpl.body||'')}</div>
       <div class="btns">
-        <button class="btn btnp" onclick="copyToClipboard(document.getElementById('tpl-body').innerText,'Template copied')">Copy template</button>
+        <button class="btn btnp" onclick="copyToClipboard(document.getElementById('tpl-body').innerText,'Template copied')">Copy email template</button>
+        <button class="btn" style="background:var(--kaani-cream-deep)" onclick="copyWATemplate('${key}','${escapeHtml(tplPropName)}')">📱 Copy WhatsApp</button>
         <button class="btn" onclick='copyToClipboard(${JSON.stringify(guests.map(g=>g.email).join(", "))},"Emails copied")'>Copy ${guests.length} emails</button>
         <button class="btn" onclick="logCampaignSend('${key}',${guests.length})">Log as sent</button>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:#5F5E5A">Templates use {{first_name}} and {{property_name}} — replace before sending. Edit the template in the Templates tab.</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Use <strong>{{first_name}}</strong> and <strong>{{property_name}}</strong> as placeholders — replace before sending.</div>
+      <div style="margin-top:12px;padding:12px 14px;background:var(--kaani-cream-deep);border-radius:10px;border:1px solid var(--line-peach)">
+        <div class="sec" style="margin-bottom:8px">WhatsApp message preview</div>
+        <div id="wa-preview-${key}" style="font-size:13px;color:var(--black-soft);line-height:1.7;white-space:pre-wrap;font-family:inherit">${(WA_TEMPLATES['${key}']||'').replace('{{property_name}}','${escapeHtml(tplPropName)}')}</div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Templates use {{first_name}} and {{property_name}} — replace before sending. Edit the template in the Templates tab.</div>
     </div>`;
+}
+
+
+function copyWATemplate(key, propName){
+  const tpl = WA_TEMPLATES[key] || '';
+  const text = tpl.replace(/{{property_name}}/g, propName || 'Kaani Hotels');
+  navigator.clipboard.writeText(text).then(()=>{
+    toast('WhatsApp message copied — paste into WhatsApp Web or Business app');
+  });
 }
 
 async function logCampaignSend(key,count){
