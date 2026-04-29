@@ -1552,3 +1552,4 @@ async function changePassword(){
   if(error){toast(error.message,true);return;}
   toast('Password updated successfully');
 }
+
