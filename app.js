@@ -279,7 +279,6 @@ async function loadInitialData(){
   STATE.tags=tagsRes.data||[];
   STATE.templates=tplRes.data||[];
   STATE.guestsTotalCount=countRes.count||0;
-  STATE.commissionRates=ratesRes.data||[];
   document.getElementById('app-subtitle').textContent=`${STATE.guestsTotalCount.toLocaleString()} guests · ${STATE.properties.filter(p=>p.active).length} properties`;
 }
 
