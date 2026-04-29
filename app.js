@@ -194,12 +194,14 @@ async function showApp(){
     pwdBtn.onclick = changePassword;
     userInfo.insertBefore(pwdBtn, userInfo.lastElementChild);
   }
-  if(STATE.profile.role==='admin'){
-    document.getElementById('admin-tab').style.display='inline-block';
-  }
   await loadInitialData();
   setupPropertyAccess();
   renderPropertySelector();
+  // Show admin tab after profile is confirmed loaded
+  const adminTab = document.getElementById('admin-tab');
+  if(adminTab){
+    adminTab.style.display = (STATE.profile&&STATE.profile.role==='admin') ? 'inline-block' : 'none';
+  }
   await renderOverview();
 }
 
@@ -267,12 +269,11 @@ async function selectProperty(propId){
 }
 
 async function loadInitialData(){
-  const[propsRes,tagsRes,tplRes,countRes,ratesRes]=await Promise.all([
+  const[propsRes,tagsRes,tplRes,countRes]=await Promise.all([
     sb.from('properties').select('*').order('id'),
     sb.from('tags').select('*').order('name'),
     sb.from('email_templates').select('*').order('id'),
-    sb.from('guests').select('*',{count:'exact',head:true}),
-    sb.from('channel_commission_rates').select('*').eq('active',true)
+    sb.from('guests').select('*',{count:'exact',head:true})
   ]);
   STATE.properties=propsRes.data||[];
   STATE.tags=tagsRes.data||[];
@@ -322,33 +323,6 @@ function renderPropertySelector() {
   bar.innerHTML = html;
 }
 
-function changeProperty(id) {
-  STATE.selectedPropertyId = id;
-  renderPropertySelector();
-  // Re-render currently active tab
-  const activeBtn = document.querySelector('.nav .nb.on');
-  if (activeBtn) {
-    const onclick = activeBtn.getAttribute('onclick');
-    const match = onclick.match(/sw\('(\w+)'/);
-    if (match) {
-      const tab = match[1];
-      if (tab === 'overview') renderOverview();
-      if (tab === 'dashboard') { STATE.chartsRendered = false; renderDashboard(); }
-      if (tab === 'guests') { STATE.guestsPage = 0; renderGuestsPane(); }
-      if (tab === 'actions') renderActionsPane();
-      if (tab === 'marketing') renderMarketingPane();
-      if (tab === 'reports') renderReportsPane();
-    }
-  }
-}
-
-// Helper: applies property filter to a Supabase query on the stays table
-function applyPropertyFilter(query) {
-  if (STATE.selectedPropertyId === null) return query;
-  return query.eq('property_id', STATE.selectedPropertyId);
-}
-
-// Helper: get list of guest IDs that have stayed at the selected property
 async function getGuestIdsForProperty() {
   // Returns null = all guests, or array of guest IDs for specific property
   if (STATE.selectedPropertyId === null) return null;
@@ -379,7 +353,7 @@ async function renderOverview(){
   }
 
   const[stayStatsRes, guestStatsRes, inhouseRes, recentCheckoutRes] = await Promise.all([
-    sb.from('stays').select('id,status,channel_type,net_revenue_usd,guest_id').in('property_id', propIds),
+    sb.from('stays').select('id,status,channel_type,net_revenue_usd,guest_id,arrival_date,departure_date').in('property_id', propIds),
     sb.from('guests').select('id,full_name,email,date_of_birth,lead_status'),
     sb.from('stays').select('*,guests(*),properties(name)').in('property_id', propIds).in('status',['checked_in','stayover']).order('arrival_date',{ascending:false}).limit(8),
     sb.from('stays').select('*,guests(*),properties(name)').in('property_id', propIds).eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false}).limit(5)
@@ -392,7 +366,12 @@ async function renderOverview(){
 
   const stats = {
     total_guests: propGuests.length,
-    in_house: propStays.filter(s=>['checked_in','stayover'].includes(s.status)).length,
+    in_house: propStays.filter(s=>{
+      if(!['checked_in','stayover'].includes(s.status)) return false;
+      // Only count guests actually in-house today
+      const today = new Date().toISOString().slice(0,10);
+      return s.arrival_date <= today && s.departure_date >= today;
+    }).length,
     repeat_guests: propGuests.filter(g=>['repeat','vip'].includes(g.lead_status)).length,
     direct_bookings: propStays.filter(s=>s.channel_type==='direct').length,
     total_stays: propStays.length,
@@ -538,7 +517,7 @@ async function renderDashboard(){
   const nKeys=Object.keys(nDist).map(Number).sort((a,b)=>a-b);
   new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nKeys.map(n=>n+'n'),datasets:[{data:nKeys.map(n=>nDist[n]),backgroundColor:'#FBD7BC',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
 
-  const typeCounts={tourist:0,local:0};typeData.forEach(g=>{if(g.guest_type==='tourist')typeCounts.tourist++;else if(g.guest_type==='local')typeCounts.local++;});
+  const typeCounts={tourist:0,local:0};typeData.forEach(g=>{const t=(g.guest_type||'').toLowerCase();if(t.includes('tourist'))typeCounts.tourist++;else if(t.includes('local'))typeCounts.local++;});
   const totalType=typeCounts.tourist+typeCounts.local;
   new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[typeCounts.tourist,typeCounts.local],backgroundColor:['#F47923','#FBD7BC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12,generateLabels:(c)=>{const d=c.data;return d.labels.map((l,i)=>({text:l+' '+d.datasets[0].data[i]+(totalType?' ('+Math.round(d.datasets[0].data[i]/totalType*100)+'%)':''),fillStyle:d.datasets[0].backgroundColor[i],strokeStyle:'transparent',index:i}));}}}}}}); 
 
@@ -728,14 +707,17 @@ function renderGuestList(totalCount){
 }
 
 function renderPagination(total){
+  const pgEl=document.getElementById('g-pagination');
+  if(!pgEl)return;
   const totalPages=Math.ceil(total/STATE.guestsPerPage);
-  if(totalPages<=1){document.getElementById('g-pagination').innerHTML='';return;}
+  if(totalPages<=1){pgEl.innerHTML='';return;}
   const p=STATE.guestsPage;
   let html=`<button onclick="changeGuestPage(${p-1})" ${p===0?'disabled':''}>‹ Prev</button>`;
-  html+=`<button class="on">${p+1}</button>`;
+  const start=Math.max(0,p-2);const end=Math.min(totalPages-1,p+2);
+  for(let i=start;i<=end;i++)html+=`<button class="${i===p?'on':''}" onclick="changeGuestPage(${i})">${i+1}</button>`;
   html+=`<button onclick="changeGuestPage(${p+1})" ${p>=totalPages-1?'disabled':''}>Next ›</button>`;
-  html+=`<span style="font-size:11px;color:#5F5E5A;align-self:center;margin-left:8px">Page ${p+1} of ${totalPages} · ${total.toLocaleString()} guests</span>`;
-  document.getElementById('g-pagination').innerHTML=html;
+  html+=`<span style="font-size:11px;color:var(--gray-text);align-self:center;margin-left:8px">Page ${p+1} of ${totalPages} · ${total.toLocaleString()} guests</span>`;
+  pgEl.innerHTML=html;
 }
 function changeGuestPage(p){STATE.guestsPage=p;loadGuests();}
 
@@ -858,7 +840,13 @@ const WA_TEMPLATES = {
 
 async function renderActionsPane(){
   const el=document.getElementById('pane-actions');
+  const propLabel = STATE.selectedPropertyId
+    ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
+    : 'All Properties';
   el.innerHTML=`
+    <div style="margin-bottom:14px;font-size:12px;color:var(--gray-text);font-weight:600;text-transform:uppercase;letter-spacing:.06em">
+      Viewing: <span style="color:var(--kaani-orange)">${escapeHtml(propLabel)}</span>
+    </div>
     <div class="nav" style="margin-bottom:14px" id="action-nav">
       <button class="nb on" onclick="renderAction('review_request',this)">Review request</button>
       <button class="nb" onclick="renderAction('winback',this)">Win-back</button>
