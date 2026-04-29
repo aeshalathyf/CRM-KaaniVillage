@@ -21,6 +21,24 @@ const STATE = {
   selectedPropertyId: null,  // null = All Properties, or a specific property ID number
 };
 
+
+// Fetch all rows from a query (handles Supabase's default 1000 row limit)
+async function fetchAll(query){
+  const pageSize = 1000;
+  let allData = [];
+  let page = 0;
+  while(true){
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    const {data, error} = await query.range(from, to);
+    if(error || !data || data.length === 0) break;
+    allData = allData.concat(data);
+    if(data.length < pageSize) break; // last page
+    page++;
+  }
+  return allData;
+}
+
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const AVCOLS = ['#E1F5EE/#0F6E56','#E6F1FB/#185FA5','#FAEEDA/#633806','#FBEAF0/#72243E','#EAF3DE/#27500A','#EEEDFE/#3C3489'];
 
@@ -242,14 +260,15 @@ function renderPropertySelector(){
     html+=`<button class="pp ${STATE.selectedPropertyId===null?'on':''}" onclick="selectProperty(null)">${allLabel}</button>`;
   }
   STATE.accessibleProperties.forEach(p=>{
-    html+=`<button class="pp ${STATE.selectedPropertyId===p.id?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
+    html+=`<button class="pp ${STATE.selectedPropertyId===p.id||STATE.selectedPropertyId===parseInt(p.id)?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
   });
 
   pills.innerHTML=html;
 }
 
 async function selectProperty(propId){
-  STATE.selectedPropertyId=propId;
+  // Ensure consistent type — null for All Properties, integer for specific property
+  STATE.selectedPropertyId = propId === null ? null : parseInt(propId);
   STATE.guestsPage=0;
   STATE.chartsRendered=false;
   renderPropertySelector();
@@ -336,60 +355,34 @@ async function renderOverview(){
   const el=document.getElementById('pane-overview');
   el.innerHTML='<div class="loading">Loading</div>';
 
-  if(!STATE.properties || STATE.properties.length === 0){
-    await loadInitialData();
-    setupPropertyAccess();
-  }
-
   const propIds = STATE.selectedPropertyId !== null
     ? [STATE.selectedPropertyId]
-    : (STATE.accessibleProperties.length > 0 ? STATE.accessibleProperties : STATE.properties).map(p=>p.id);
+    : STATE.accessibleProperties.map(p=>p.id);
+  if(!propIds.length){el.innerHTML='<div class="empty">No properties.</div>';return;}
 
-  if(!propIds || propIds.length === 0){
-    el.innerHTML='<div class="empty">No properties accessible.</div>';
-    return;
-  }
-
-  const[stayStatsRes, guestStatsRes, inhouseRes, recentCheckoutRes] = await Promise.all([
-    sb.from('stays').select('id,status,channel_type,net_revenue_usd,guest_id,arrival_date,departure_date').in('property_id', propIds),
-    sb.from('guests').select('id,full_name,email,date_of_birth,lead_status'),
-    sb.from('stays').select('*,guests(*),properties(name)').in('property_id', propIds).in('status',['checked_in','stayover']).order('arrival_date',{ascending:false}).limit(8),
-    sb.from('stays').select('*,guests(*),properties(name)').in('property_id', propIds).eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false}).limit(5)
+  const [statsRes, inhouseRes, checkoutsRes, bdayRes] = await Promise.all([
+    sb.rpc('get_overview_stats', {prop_ids: propIds}),
+    sb.rpc('get_inhouse_guests', {prop_ids: propIds}),
+    sb.rpc('get_recent_checkouts', {prop_ids: propIds, days_back: 3}),
+    sb.rpc('get_upcoming_birthdays', {prop_ids: propIds, days_ahead: 30})
   ]);
 
-  const propStays = stayStatsRes.data || [];
-  const guestIds = new Set(propStays.map(s=>s.guest_id));
-  const allGuests = guestStatsRes.data || [];
-  const propGuests = allGuests.filter(g=>guestIds.has(g.id));
-
-  const stats = {
-    total_guests: propGuests.length,
-    in_house: propStays.filter(s=>{
-      if(!['checked_in','stayover'].includes(s.status)) return false;
-      // Only count guests actually in-house today
-      const today = new Date().toISOString().slice(0,10);
-      return s.arrival_date <= today && s.departure_date >= today;
-    }).length,
-    repeat_guests: propGuests.filter(g=>['repeat','vip'].includes(g.lead_status)).length,
-    direct_bookings: propStays.filter(s=>s.channel_type==='direct').length,
-    total_stays: propStays.length,
-    total_net_revenue: propStays.reduce((a,s)=>a+(parseFloat(s.net_revenue_usd)||0),0)
-  };
-
-  const bdGuests = propGuests.filter(g=>g.email && g.date_of_birth);
-  const birthdays = bdGuests.filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
-  const scopeLabel = STATE.selectedPropertyId ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property') : 'All Properties';
+  const stats = statsRes.data || {};
   const inhouse = inhouseRes.data || [];
-  const recentCo = recentCheckoutRes.data || [];
+  const checkouts = checkoutsRes.data || [];
+  const birthdays = (bdayRes.data || []).sort((a,b)=>a.days_until-b.days_until);
+  const scopeLabel = STATE.selectedPropertyId
+    ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
+    : 'All Properties';
 
   el.innerHTML=`
     <div class="sg">
-      <div class="sm"><div class="sl">Total guests</div><div class="sv">${stats.total_guests.toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div></div>
-      <div class="sm"><div class="sl">In-house</div><div class="sv">${stats.in_house}</div></div>
-      <div class="sm"><div class="sl">Repeat guests</div><div class="sv">${stats.repeat_guests}</div></div>
-      <div class="sm"><div class="sl">Direct bookings</div><div class="sv">${stats.direct_bookings}</div></div>
-      <div class="sm"><div class="sl">Total stays</div><div class="sv">${stats.total_stays.toLocaleString()}</div></div>
-      <div class="sm"><div class="sl">Net revenue</div><div class="sv">$${Math.round(stats.total_net_revenue).toLocaleString()}</div></div>
+      <div class="sm"><div class="sl">Total guests</div><div class="sv">${(stats.total_guests||0).toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div></div>
+      <div class="sm"><div class="sl">In-house</div><div class="sv">${(stats.in_house||0).toLocaleString()}</div><div class="ss">Stayover + Checked IN</div></div>
+      <div class="sm"><div class="sl">Repeat guests</div><div class="sv">${(stats.repeat_guests||0).toLocaleString()}</div></div>
+      <div class="sm"><div class="sl">Direct bookings</div><div class="sv">${(stats.direct_bookings||0).toLocaleString()}</div></div>
+      <div class="sm"><div class="sl">Total stays</div><div class="sv">${(stats.total_stays||0).toLocaleString()}</div></div>
+      <div class="sm"><div class="sl">Net revenue</div><div class="sv">$${Math.round(stats.net_revenue||0).toLocaleString()}</div></div>
     </div>
     <div class="g2">
       <div class="card"><div class="ct" style="margin-bottom:12px">Today's urgent actions</div><div id="ov-alerts"></div></div>
@@ -397,12 +390,24 @@ async function renderOverview(){
     </div>
     <div class="card"><div class="ct" style="margin-bottom:12px">Current in-house · ${escapeHtml(scopeLabel)}</div><div id="ov-inhouse"></div></div>`;
 
+  // Alerts
   const items=[];
-  recentCo.slice(0,3).forEach(s=>{if(s.guests?.email)items.push({dot:'#A32D2D',txt:fn(s.guests.full_name)+' — send review request',sub:'Checked out '+fmtDate(s.departure_date)+' · '+(s.properties?.name||'')});});
-  inhouse.filter(s=>s.nights>=3&&s.guests?.email).slice(0,2).forEach(s=>items.push({dot:'var(--kaani-orange)',txt:fn(s.guests.full_name)+' — upsell excursions',sub:'Stayover until '+fmtDate(s.departure_date)}));
-  document.getElementById('ov-alerts').innerHTML=items.length?items.map(it=>`<div class="row"><div class="dot" style="background:${it.dot}"></div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(it.txt)}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(it.sub)}</div></div></div>`).join(''):'<div class="empty">No urgent actions.</div>';
-  document.getElementById('ov-bdays').innerHTML=birthdays.length?birthdays.slice(0,5).map(g=>{const d=bdayDays(g.date_of_birth);return`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(fn(g.full_name||''))}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(g.email||'')}</div></div><div class="rd" style="color:${d<=3?'var(--danger)':d<=7?'var(--warning)':'var(--success)'};font-weight:600">in ${d}d</div></div>`;}).join(''):'<div class="empty">No birthdays in next 30 days.</div>';
-  document.getElementById('ov-inhouse').innerHTML=inhouse.length?inhouse.map(s=>{const g=s.guests;const stCls=s.status==='stayover'?'bm':s.status==='checked_in'?'be':'bg';return`<div class="row"><div class="av">${ini(g?.full_name||'?')}</div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(g?.full_name||'')}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(g?.nationality||'')} · ${escapeHtml(s.room_number||'')} · until ${fmtDate(s.departure_date)} · ${escapeHtml(s.properties?.name||'')}</div></div><span class="badge ${stCls}">${s.status.replace('_',' ')}</span></div>`;}).join(''):'<div class="empty">No in-house guests.</div>';
+  checkouts.slice(0,3).forEach(g=>{items.push({dot:'#A32D2D',txt:fn(g.full_name)+' — send review request',sub:'Checked out '+fmtDate(g.departure_date)+' · '+(g.property_name||'')});});
+  inhouse.filter(s=>s.nights>=3).slice(0,2).forEach(s=>items.push({dot:'var(--kaani-orange)',txt:fn(s.full_name)+' — upsell excursions',sub:'Until '+fmtDate(s.departure_date)+' · '+(s.property_name||'')}));
+  document.getElementById('ov-alerts').innerHTML=items.length
+    ?items.map(it=>`<div class="row"><div class="dot" style="background:${it.dot}"></div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(it.txt)}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(it.sub)}</div></div></div>`).join('')
+    :'<div class="empty">No urgent actions.</div>';
+
+  // Birthdays
+  document.getElementById('ov-bdays').innerHTML=birthdays.length
+    ?birthdays.slice(0,5).map(g=>`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(fn(g.full_name||''))}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(g.email||'')}</div></div><div class="rd" style="color:${g.days_until<=3?'var(--danger)':g.days_until<=7?'var(--warning)':'var(--success)'};font-weight:600">in ${g.days_until}d</div></div>`).join('')
+    :'<div class="empty">No birthdays in next 30 days.</div>';
+
+  // In-house list
+  document.getElementById('ov-inhouse').innerHTML=inhouse.length
+    ?inhouse.slice(0,10).map(s=>{const stCls=s.status?.toLowerCase().includes('stayover')?'bm':'be';return`<div class="row"><div class="av">${ini(s.full_name||'?')}</div><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(s.full_name||'')}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(s.nationality||'')} · ${escapeHtml(s.room_number||'')} · until ${fmtDate(s.departure_date)} · ${escapeHtml(s.property_name||'')}</div></div><span class="badge ${stCls}">${escapeHtml(s.status||'')}</span></div>`;}).join('')
+    +(inhouse.length>10?`<div style="font-size:12px;color:var(--gray-text);padding:10px 0">+${inhouse.length-10} more in-house</div>`:'')
+    :'<div class="empty">No in-house guests.</div>';
 }
 
 async function renderDashboard(){
@@ -411,50 +416,40 @@ async function renderDashboard(){
 
   const propIds = STATE.selectedPropertyId !== null
     ? [STATE.selectedPropertyId]
-    : (STATE.accessibleProperties.length > 0 ? STATE.accessibleProperties : STATE.properties).map(p=>p.id);
+    : STATE.accessibleProperties.map(p=>p.id);
+  if(!propIds.length){el.innerHTML='<div class="empty">No properties.</div>';return;}
 
-  if(!propIds || propIds.length === 0){
-    el.innerHTML='<div class="empty">No properties accessible.</div>';
-    return;
-  }
-
-  const[propPerfRes, sourceRes, nightsRes, arrRes, allStaysRes] = await Promise.all([
-    sb.from('v_property_performance').select('*').then(r=>r.error?{data:[]}:r),
-    sb.from('stays').select('source,channel_type').in('property_id', propIds),
-    sb.from('stays').select('nights').in('property_id', propIds),
-    sb.from('stays').select('arrival_date').in('property_id', propIds).gte('arrival_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10)),
-    sb.from('stays').select('guest_id').in('property_id', propIds)
+  const [perfRes, statsRes, qualRes, srcRes, natRes, nightsRes, typeRes, arrRes] = await Promise.all([
+    sb.from('v_property_performance').select('*'),
+    sb.rpc('get_overview_stats', {prop_ids: propIds}),
+    sb.rpc('get_data_quality', {prop_ids: propIds}),
+    sb.rpc('get_source_breakdown', {prop_ids: propIds}),
+    sb.rpc('get_nationality_breakdown', {prop_ids: propIds}),
+    sb.rpc('get_nights_breakdown', {prop_ids: propIds}),
+    sb.rpc('get_guest_type_breakdown', {prop_ids: propIds}),
+    sb.rpc('get_daily_arrivals', {prop_ids: propIds})
   ]);
 
-  const propStays = allStaysRes.data || [];
-  const guestIds = new Set(propStays.map(s=>s.guest_id));
-  const guestDataRes = guestIds.size > 0 ? await sb.from('guests').select('id,email,phone,date_of_birth,passport_number,national_id,guest_type,nationality').in('id', Array.from(guestIds)) : {data:[]};
-  const propGuests = guestDataRes.data || [];
-  const totalG = propGuests.length;
-  const hasEmail = propGuests.filter(g=>g.email).length;
-  const hasPhone = propGuests.filter(g=>g.phone).length;
-  const hasDob = propGuests.filter(g=>g.date_of_birth).length;
-  const hasId = propGuests.filter(g=>g.passport_number||g.national_id).length;
-  const s = {total_guests: totalG};
-  const q = {total_guests:totalG,has_email:hasEmail,pct_email:totalG>0?Math.round(1000*hasEmail/totalG)/10:0,has_phone:hasPhone,pct_phone:totalG>0?Math.round(1000*hasPhone/totalG)/10:0,has_dob:hasDob,pct_dob:totalG>0?Math.round(1000*hasDob/totalG)/10:0,has_id:hasId,pct_id:totalG>0?Math.round(1000*hasId/totalG)/10:0};
-  const natData = propGuests.map(g=>({nationality:g.nationality}));
-  const typeData = propGuests.map(g=>({guest_type:g.guest_type}));
-  const propPerf = propPerfRes.data || [];
-  const accessibleIds = new Set((STATE.accessibleProperties.length>0?STATE.accessibleProperties:STATE.properties).map(p=>p.id));
-  const visiblePerf = propPerf.filter(p=>accessibleIds.has(p.property_id));
-  const scopeLabel = STATE.selectedPropertyId ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property') : 'All Properties';
+  const stats = statsRes.data || {};
+  const q = qualRes.data || {};
+  const propPerf = (perfRes.data || []).filter(p=>STATE.accessibleProperties.map(x=>x.id).includes(p.property_id));
+  const scopeLabel = STATE.selectedPropertyId
+    ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
+    : 'All Properties';
 
-  const perfRows = visiblePerf.length > 0 ? visiblePerf.map(p=>{
-    const emailPct=p.unique_guests>0?Math.round(100*p.guests_with_email/p.unique_guests):0;
-    const isCurrent=STATE.selectedPropertyId===p.property_id;
-    return `<tr style="border-bottom:1px solid var(--line-peach);${isCurrent?'background:var(--kaani-cream-deep)':''}">
+  const pct = (n,d) => d>0 ? Math.round(1000*n/d)/10 : 0;
+
+  const perfRows = propPerf.length>0 ? propPerf.map(p=>{
+    const ep=p.unique_guests>0?Math.round(100*p.guests_with_email/p.unique_guests):0;
+    const cur=STATE.selectedPropertyId===p.property_id;
+    return`<tr style="border-bottom:1px solid var(--line-peach);${cur?'background:var(--kaani-cream-deep)':''}">
       <td style="padding:12px;font-weight:600"><div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--kaani-orange)"></span>${escapeHtml(p.property_name)}</div></td>
       <td style="padding:12px;text-align:right;font-weight:600">${(p.unique_guests||0).toLocaleString()}</td>
       <td style="padding:12px;text-align:right">${(p.total_stays||0).toLocaleString()}</td>
       <td style="padding:12px;text-align:right">${p.avg_nights||'—'}</td>
       <td style="padding:12px;text-align:right">${p.in_house||0}</td>
       <td style="padding:12px;text-align:right">${p.direct_guests||0}</td>
-      <td style="padding:12px;text-align:right;color:${emailPct>=80?'var(--success)':emailPct>=50?'var(--warning)':'var(--danger)'};font-weight:600">${emailPct}%</td>
+      <td style="padding:12px;text-align:right;color:${ep>=80?'var(--success)':ep>=50?'var(--warning)':'var(--danger)'};font-weight:600">${ep}%</td>
     </tr>`;
   }).join('') : '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--gray-text)">Import guest data to see comparison</td></tr>';
 
@@ -478,10 +473,10 @@ async function renderDashboard(){
       <div style="font-family:'Inter Tight',sans-serif;font-size:20px;font-weight:700;color:var(--black);letter-spacing:-0.02em">${escapeHtml(scopeLabel)} — Detailed View</div>
     </div>
     <div class="sg">
-      <div class="kpi"><div class="sl">Unique guests</div><div class="sv">${totalG.toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--kaani-orange)"></div></div></div>
-      <div class="kpi"><div class="sl">Email capture</div><div class="sv">${q.pct_email}%</div><div class="ss">${q.has_email} of ${q.total_guests}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_email}%;background:#378ADD"></div></div></div>
-      <div class="kpi"><div class="sl">Phone on file</div><div class="sv">${q.pct_phone}%</div><div class="ss">${q.has_phone} of ${q.total_guests}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_phone}%;background:#EF9F27"></div></div></div>
-      <div class="kpi"><div class="sl">DOB on file</div><div class="sv">${q.pct_dob}%</div><div class="ss">${q.has_dob} of ${q.total_guests}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${q.pct_dob}%;background:var(--success)"></div></div></div>
+      <div class="kpi"><div class="sl">Unique guests</div><div class="sv">${(stats.total_guests||0).toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--kaani-orange)"></div></div></div>
+      <div class="kpi"><div class="sl">Email capture</div><div class="sv">${pct(q.has_email,q.total_guests)}%</div><div class="ss">${(q.has_email||0).toLocaleString()} of ${(q.total_guests||0).toLocaleString()}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${pct(q.has_email,q.total_guests)}%;background:#378ADD"></div></div></div>
+      <div class="kpi"><div class="sl">Phone on file</div><div class="sv">${pct(q.has_phone,q.total_guests)}%</div><div class="ss">${(q.has_phone||0).toLocaleString()} of ${(q.total_guests||0).toLocaleString()}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${pct(q.has_phone,q.total_guests)}%;background:#EF9F27"></div></div></div>
+      <div class="kpi"><div class="sl">DOB on file</div><div class="sv">${pct(q.has_dob,q.total_guests)}%</div><div class="ss">${(q.has_dob||0).toLocaleString()} of ${(q.total_guests||0).toLocaleString()}</div><div class="kpi-bar"><div class="kpi-fill" style="width:${pct(q.has_dob,q.total_guests)}%;background:var(--success)"></div></div></div>
     </div>
     <div class="g2">
       <div class="card"><div class="ch"><div class="ct">Booking source</div><div class="cs">all stays</div></div><div class="cw"><canvas id="srcChart"></canvas></div></div>
@@ -493,80 +488,44 @@ async function renderDashboard(){
     </div>
     <div class="card"><div class="ch"><div class="ct">Daily arrivals</div><div class="cs">last 30 days</div></div><div class="cw" style="height:200px"><canvas id="arrChart"></canvas></div></div>
     <div class="card">
-      <div class="ct" style="margin-bottom:12px">Data quality</div>
+      <div class="ct" style="margin-bottom:12px">Data quality · ${escapeHtml(scopeLabel)}</div>
       <div style="font-size:13px;color:var(--gray-text)">
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>Email capture</span><strong style="color:var(--black)">${q.pct_email}%</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>Phone capture</span><strong style="color:var(--black)">${q.pct_phone}%</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>DOB capture</span><strong style="color:var(--black)">${q.pct_dob}%</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:8px 0"><span>ID / Passport</span><strong style="color:var(--black)">${q.pct_id}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>Email capture</span><strong style="color:var(--black)">${pct(q.has_email,q.total_guests)}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>Phone capture</span><strong style="color:var(--black)">${pct(q.has_phone,q.total_guests)}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-peach)"><span>DOB capture</span><strong style="color:var(--black)">${pct(q.has_dob,q.total_guests)}%</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0"><span>ID / Passport</span><strong style="color:var(--black)">${pct(q.has_id,q.total_guests)}%</strong></div>
       </div>
     </div>
     <div class="card"><div class="ct" style="margin-bottom:12px">Key insights · ${escapeHtml(scopeLabel)}</div><div id="insights-body"><div class="loading">Generating</div></div></div>`;
 
-  const sourceCounts={};(sourceRes.data||[]).forEach(r=>{const k=r.source||'Unknown';sourceCounts[k]=(sourceCounts[k]||0)+1;});
-  const srcOrder=Object.entries(sourceCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  new Chart(document.getElementById('srcChart'),{type:'doughnut',data:{labels:srcOrder.map(([n])=>srcShort(n)),datasets:[{data:srcOrder.map(([,v])=>v),backgroundColor:['#F47923','#2C7AB5','#1D9E75','#BA7517','#A32D2D','#6E5BB8'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}}}}});
+  // Render all charts from RPC data
+  const srcData = srcRes.data || [];
+  const natData = natRes.data || [];
+  const nightsData = nightsRes.data || [];
+  const typeData = typeRes.data || [];
+  const arrData = arrRes.data || [];
 
-  const natCounts={};natData.forEach(r=>{const k=r.nationality||'Unknown';natCounts[k]=(natCounts[k]||0)+1;});
-  const natOrder=Object.entries(natCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
-  new Chart(document.getElementById('natChart'),{type:'bar',data:{labels:natOrder.map(([n])=>n),datasets:[{data:natOrder.map(([,v])=>v),backgroundColor:'#F47923',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:10}}}}}});
+  new Chart(document.getElementById('srcChart'),{type:'doughnut',data:{labels:srcData.map(r=>srcShort(r.source)),datasets:[{data:srcData.map(r=>r.stay_count),backgroundColor:['#F47923','#2C7AB5','#1D9E75','#BA7517','#A32D2D','#6E5BB8','#EF9F27','#9FE1CB'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}}}}});
 
-  const nDist={};(nightsRes.data||[]).forEach(r=>{nDist[r.nights]=(nDist[r.nights]||0)+1;});
-  const nKeys=Object.keys(nDist).map(Number).sort((a,b)=>a-b);
-  new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nKeys.map(n=>n+'n'),datasets:[{data:nKeys.map(n=>nDist[n]),backgroundColor:'#FBD7BC',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
+  new Chart(document.getElementById('natChart'),{type:'bar',data:{labels:natData.map(r=>r.nationality),datasets:[{data:natData.map(r=>r.guest_count),backgroundColor:'#F47923',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:10}}}}}});
 
-  const typeCounts={tourist:0,local:0};typeData.forEach(g=>{const t=(g.guest_type||'').toLowerCase();if(t.includes('tourist'))typeCounts.tourist++;else if(t.includes('local'))typeCounts.local++;});
-  const totalType=typeCounts.tourist+typeCounts.local;
-  new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[typeCounts.tourist,typeCounts.local],backgroundColor:['#F47923','#FBD7BC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12,generateLabels:(c)=>{const d=c.data;return d.labels.map((l,i)=>({text:l+' '+d.datasets[0].data[i]+(totalType?' ('+Math.round(d.datasets[0].data[i]/totalType*100)+'%)':''),fillStyle:d.datasets[0].backgroundColor[i],strokeStyle:'transparent',index:i}));}}}}}}); 
+  new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nightsData.map(r=>r.nights+'n'),datasets:[{data:nightsData.map(r=>r.stay_count),backgroundColor:'#FBD7BC',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
 
-  const arrCounts={};(arrRes.data||[]).forEach(s=>{if(s.arrival_date)arrCounts[s.arrival_date]=(arrCounts[s.arrival_date]||0)+1;});
-  const arrSorted=Object.entries(arrCounts).sort();
-  new Chart(document.getElementById('arrChart'),{type:'line',data:{labels:arrSorted.map(([d])=>{const dt=new Date(d);return String(dt.getDate()).padStart(2,'0')+' '+MONTHS[dt.getMonth()];}),datasets:[{data:arrSorted.map(([,v])=>v),borderColor:'#F47923',backgroundColor:'rgba(244,121,35,0.1)',fill:true,tension:0.3,pointBackgroundColor:'#F47923',pointRadius:4,pointHoverRadius:6,borderWidth:2.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10},maxRotation:0}}}}});
+  const tourist = typeData.find(r=>r.guest_type?.toLowerCase().includes('tourist'))?.guest_count||0;
+  const local = typeData.find(r=>r.guest_type?.toLowerCase().includes('local'))?.guest_count||0;
+  const totalT = tourist+local;
+  new Chart(document.getElementById('typeChart'),{type:'doughnut',data:{labels:['Tourist','Local'],datasets:[{data:[tourist,local],backgroundColor:['#F47923','#FBD7BC'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12,generateLabels:(c)=>{const d=c.data;return d.labels.map((l,i)=>({text:l+' '+d.datasets[0].data[i]+(totalT?' ('+Math.round(d.datasets[0].data[i]/totalT*100)+'%)':''),fillStyle:d.datasets[0].backgroundColor[i],strokeStyle:'transparent',index:i}));}}}}}});
 
-  generateInsights(s,q,sourceCounts,natCounts,typeCounts,nDist);
+  new Chart(document.getElementById('arrChart'),{type:'line',data:{labels:arrData.map(r=>{const dt=new Date(r.arrival_date);return String(dt.getDate()).padStart(2,'0')+' '+MONTHS[dt.getMonth()];}),datasets:[{data:arrData.map(r=>r.arrival_count),borderColor:'#F47923',backgroundColor:'rgba(244,121,35,0.1)',fill:true,tension:0.3,pointBackgroundColor:'#F47923',pointRadius:4,pointHoverRadius:6,borderWidth:2.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:10},maxRotation:0}}}}});
+
+  // Insights
+  const sourceCounts = Object.fromEntries(srcData.map(r=>[r.source,+r.stay_count]));
+  const natCounts = Object.fromEntries(natData.map(r=>[r.nationality,+r.guest_count]));
+  const nightsDist = Object.fromEntries(nightsData.map(r=>[r.nights,+r.stay_count]));
+  const typeCounts = {tourist, local};
+  generateInsights(stats, {total_guests:q.total_guests,pct_email:pct(q.has_email,q.total_guests)}, sourceCounts, natCounts, typeCounts, nightsDist);
 }
 
-
-function generateInsights(s,q,sources,nats,types,nightsDist){
-  const el=document.getElementById('insights-body');
-  if(!el)return;
-  const insights=[];
-  const totalStays=Object.values(sources).reduce((a,b)=>a+b,0);
-  const totalGuests=Object.values(nats).reduce((a,b)=>a+b,0);
-
-  // Source concentration
-  if(totalStays>0){
-    const top=Object.entries(sources).sort((a,b)=>b[1]-a[1])[0];
-    const pct=Math.round(top[1]/totalStays*100);
-    if(pct>40)insights.push({title:'Source concentration risk.',body:`${pct}% of stays come through ${srcShort(top[0])}. Diversifying reduces OTA dependency and commission costs.`});
-  }
-
-  // Nationality dominance
-  if(totalGuests>0){
-    const top=Object.entries(nats).sort((a,b)=>b[1]-a[1])[0];
-    const pct=Math.round(top[1]/totalGuests*100);
-    if(pct>30)insights.push({title:`${top[0]} market dominance.`,body:`${pct}% of guests are from ${top[0]}. Consider ${top[0]==='Spain'?'Spanish-language content and a Destinos relationship strategy':'targeted campaigns for this market'}.`});
-  }
-
-  // Long stay loyalty
-  const totalN=Object.values(nightsDist).reduce((a,b)=>a+b,0);
-  const longStays=Object.entries(nightsDist).filter(([n])=>+n>=7).reduce((a,[,v])=>a+v,0);
-  if(totalN>0&&longStays/totalN>0.3)insights.push({title:'Long-stay loyalty opportunity.',body:`${Math.round(longStays/totalN*100)}% of stays are 7+ nights — these guests are your highest value win-back targets.`});
-
-  // Email gap
-  if((q.pct_email||0)<90)insights.push({title:'Email capture gap.',body:`Only ${q.pct_email||0}% of guests have an email. Every percentage point here is more reach for your campaigns.`});
-
-  // Direct booking gap
-  const directCount=Object.entries(sources).filter(([s])=>s&&s.toUpperCase().includes('DIRECT')).reduce((a,[,v])=>a+v,0);
-  if(totalStays>0){
-    const directPct=Math.round(directCount/totalStays*100);
-    if(directPct<25)insights.push({title:'Direct booking upside.',body:`${directPct}% of bookings are direct vs 25–30% industry benchmark. The win-back campaign in your Plan tab targets this directly.`});
-  }
-
-  el.innerHTML=insights.length
-    ? insights.map(i=>`<div class="insight-item"><strong>${i.title}</strong> ${i.body}</div>`).join('')
-    : '<div style="font-size:13px;color:var(--gray-text);padding:10px 0">Import more data across properties to generate meaningful insights.</div>';
-}
 
 async function renderGuestsPane(){
   const el=document.getElementById('pane-guests');
@@ -602,8 +561,8 @@ async function renderGuestsPane(){
 
   // Populate nationality + source filters
   const[natsRes, sourcesRes]=await Promise.all([
-    sb.from('guests').select('nationality').not('nationality','is',null).limit(2000),
-    sb.from('stays').select('source').not('source','is',null).limit(2000)
+    sb.from('guests').select('nationality').not('nationality','is',null).limit(10000),
+    sb.from('stays').select('source').not('source','is',null).limit(10000)
   ]);
   const uniq=[...new Set((natsRes.data||[]).map(n=>n.nationality))].sort();
   const ne=document.getElementById('gfnat');
@@ -898,7 +857,7 @@ async function renderAction(key,btn){
     guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
     segmentLabel='Recent checkouts (last 3 days)' + propLabel;
   }else if(key==='winback'){
-    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(200);
+    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(5000);
     if(actionPropGuestIds){
       if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
       else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=data||[]; segmentLabel='First-time + lapsed guests with emails' + propLabel; }
@@ -912,7 +871,7 @@ async function renderAction(key,btn){
     guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
     segmentLabel='Current stayovers (3+ nights with email)' + propLabel;
   }else if(key==='birthday'){
-    let q = sb.from('guests').select('*').not('email','is',null).not('date_of_birth','is',null).eq('marketing_consent',true).limit(500);
+    let q = sb.from('guests').select('*').not('email','is',null).not('date_of_birth','is',null).eq('marketing_consent',true).limit(10000);
     if(actionPropGuestIds){
       if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
       else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=(data||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth)); segmentLabel='Birthdays in next 30 days' + propLabel; }
@@ -922,7 +881,7 @@ async function renderAction(key,btn){
       segmentLabel='Birthdays in next 30 days';
     }
   }else if(key==='seasonal'){
-    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).limit(2000);
+    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).limit(10000);
     if(actionPropGuestIds){
       if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
       else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=data||[]; segmentLabel='All guests with marketing consent' + propLabel; }
@@ -956,9 +915,10 @@ async function renderAction(key,btn){
       <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Use <strong>{{first_name}}</strong> and <strong>{{property_name}}</strong> as placeholders — replace before sending.</div>
       <div style="margin-top:12px;padding:12px 14px;background:var(--kaani-cream-deep);border-radius:10px;border:1px solid var(--line-peach)">
         <div class="sec" style="margin-bottom:8px">WhatsApp message preview</div>
-        <div id="wa-preview-${key}" style="font-size:13px;color:var(--black-soft);line-height:1.7;white-space:pre-wrap;font-family:inherit">${(WA_TEMPLATES['${key}']||'').replace('{{property_name}}','${escapeHtml(tplPropName)}')}</div>
+        <div id="wa-preview-${key}" style="font-size:13px;color:var(--black-soft);line-height:1.7;white-space:pre-wrap;font-family:inherit"></div>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Templates use {{first_name}} and {{property_name}} — replace before sending. Edit the template in the Templates tab.</div>
+  
+    <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Templates use {{first_name}} and {{property_name}} — replace before sending. Edit the template in the Templates tab.</div>
     </div>`;
 }
 
@@ -970,6 +930,19 @@ function copyWATemplate(key, propName){
     toast('WhatsApp message copied — paste into WhatsApp Web or Business app');
   });
 }
+
+
+function expandGuestList(btn){
+  const id = btn.getAttribute('data-id');
+  const guests = window['_gdata_'+id]||[];
+  const parent = btn.parentElement;
+  let html = guests.map(g=>`<div class="row"><div style="flex:1;min-width:0;color:var(--gray-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.n||'')}</div><div style="font-size:12px;color:var(--black)">${escapeHtml(g.e||'')}</div></div>`).join('');
+  html += `<div style="font-size:12px;color:var(--kaani-orange);padding-top:8px;cursor:pointer;font-weight:500" onclick="this.parentElement.style.maxHeight='150px';this.parentElement.style.overflow='hidden'">▴ Collapse</div>`;
+  parent.innerHTML = html;
+}
+
+  // Populate WA preview
+  setTimeout(()=>{const wp=document.getElementById('wa-preview-'+key);if(wp&&WA_TEMPLATES[key])wp.textContent=WA_TEMPLATES[key].replace(/{{property_name}}/g,tplPropName||'Kaani Hotels');},50);
 
 async function logCampaignSend(key,count){
   const tpl=STATE.templates.find(t=>t.template_key===key);
@@ -987,7 +960,7 @@ async function renderMarketingPane(){
   el.innerHTML='<div class="loading">Loading</div>';
 
   const propGuestIds = await getGuestIdsForProperty();
-  let allQ = sb.from('guests').select('id,full_name,email,nationality,lead_status,date_of_birth,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(5000);
+  let allQ = sb.from('guests').select('id,full_name,email,nationality,lead_status,date_of_birth,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(10000);
   if(propGuestIds){
     if(propGuestIds.length === 0){
       el.innerHTML='<div class="empty">No guests yet for this property</div>';
@@ -1032,6 +1005,23 @@ async function renderMarketingPane(){
 // ============================================================================
 // TEMPLATES — editable, no code change needed
 // ============================================================================
+
+function showMktDetail(title, guests){
+  const sp = document.getElementById('sp');
+  sp.style.display = 'block';
+  sp.innerHTML = `<div class="panel-wrap" onclick="if(event.target.classList.contains('panel-wrap'))document.getElementById('sp').style.display='none'">
+    <div class="panel" onclick="event.stopPropagation()">
+      <button class="pc" onclick="document.getElementById('sp').style.display='none'">✕</button>
+      <div class="pn">${escapeHtml(title)}</div>
+      <div class="ps">${guests.length} guests</div>
+      <button class="btn btnp" style="margin-bottom:14px;width:100%" onclick='copyToClipboard(${JSON.stringify(guests.map(g=>g.e).filter(Boolean).join(", "))},"Emails copied")'>Copy all ${guests.filter(g=>g.e).length} emails</button>
+      <div style="max-height:60vh;overflow-y:auto">
+        ${guests.map(g=>`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(g.n||'')}</div></div><div style="font-size:12px;color:var(--gray-text)">${escapeHtml(g.e||'no email')}</div></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
 async function renderTemplatesPane(){
   const el=document.getElementById('pane-templates');
   const{data}=await sb.from('email_templates').select('*').order('id');
@@ -1331,7 +1321,7 @@ async function startImport(){
 async function loadImportHistory(){
   const el = document.getElementById('imp-history');
   if(!el) return;
-  const{data} = await sb.from('campaigns').select('*').eq('campaign_type','custom').ilike('name','Ezee import%').order('sent_at',{ascending:false}).limit(20);
+  const{data} = await sb.from('campaigns').select('*').in('campaign_type',['custom']).order('sent_at',{ascending:false,nullsFirst:false}).limit(30);
   if(!data||data.length===0){
     el.innerHTML='<div class="empty">No imports yet</div>';
     return;
