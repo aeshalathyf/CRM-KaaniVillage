@@ -194,6 +194,13 @@ async function showApp(){
   if(adminTab){
     adminTab.style.display = (STATE.profile&&STATE.profile.role==='admin') ? 'inline-block' : 'none';
   }
+  // Explicitly activate overview pane on load
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.nav .nb').forEach(b=>b.classList.remove('on'));
+  const overviewPane = document.getElementById('pane-overview');
+  if(overviewPane) overviewPane.classList.add('on');
+  const firstNavBtn = document.querySelector('.nav .nb');
+  if(firstNavBtn) firstNavBtn.classList.add('on');
   await renderOverview();
 }
 
