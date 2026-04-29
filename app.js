@@ -202,25 +202,28 @@ function showLogin(){
 async function showApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
-  document.getElementById('user-display').textContent=`${STATE.profile.full_name||STATE.user.email} (${STATE.profile.role})`;
+  document.getElementById('user-display').textContent=
+    `${STATE.profile.full_name||STATE.user.email} (${STATE.profile.role})`;
 
   await loadInitialData();
   setupPropertyAccess();
   renderPropertySelector();
-  // Show admin tab after profile is confirmed loaded
-  const adminTab = document.getElementById('admin-tab');
-  if(adminTab){
-    adminTab.style.display = (STATE.profile&&STATE.profile.role==='admin') ? 'inline-block' : 'none';
-  }
-  // Explicitly activate overview pane on load
+
+  // Admin tab
+  const adminTab=document.getElementById('admin-tab');
+  if(adminTab) adminTab.style.display=STATE.profile.role==='admin'?'inline-block':'none';
+
+  // Activate Overview pane explicitly
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.nav .nb').forEach(b=>b.classList.remove('on'));
-  const overviewPane = document.getElementById('pane-overview');
-  if(overviewPane) overviewPane.classList.add('on');
-  const firstNavBtn = document.querySelector('.nav .nb');
-  if(firstNavBtn) firstNavBtn.classList.add('on');
+  const ov=document.getElementById('pane-overview');
+  if(ov) ov.classList.add('on');
+  const firstBtn=document.querySelector('.nav .nb');
+  if(firstBtn) firstBtn.classList.add('on');
+
   await renderOverview();
 }
+
 
 function setupPropertyAccess(){
   if(STATE.profile.role==='admin'){
@@ -260,7 +263,7 @@ function renderPropertySelector(){
     html+=`<button class="pp ${STATE.selectedPropertyId===null?'on':''}" onclick="selectProperty(null)">${allLabel}</button>`;
   }
   STATE.accessibleProperties.forEach(p=>{
-    html+=`<button class="pp ${STATE.selectedPropertyId===p.id||STATE.selectedPropertyId===parseInt(p.id)?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
+    html+=`<button class="pp ${parseInt(STATE.selectedPropertyId)===parseInt(p.id)?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
   });
 
   pills.innerHTML=html;
@@ -959,68 +962,54 @@ async function renderMarketingPane(){
   const el=document.getElementById('pane-marketing');
   el.innerHTML='<div class="loading">Loading</div>';
 
-  const propGuestIds = await getGuestIdsForProperty();
-  let allQ = sb.from('guests').select('id,full_name,email,nationality,lead_status,date_of_birth,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(10000);
-  if(propGuestIds){
-    if(propGuestIds.length === 0){
-      el.innerHTML='<div class="empty">No guests yet for this property</div>';
-      return;
-    }
-    allQ = allQ.in('id', propGuestIds);
+  const propIds = STATE.selectedPropertyId!==null
+    ? [STATE.selectedPropertyId]
+    : STATE.accessibleProperties.map(p=>p.id);
+
+  const {data:d, error}=await sb.rpc('get_marketing_lists',{prop_ids:propIds});
+  if(error){
+    console.error('Marketing RPC error:',error);
+    el.innerHTML='<div class="empty">Error: '+escapeHtml(error.message)+'<br>Make sure 04_rpc_functions.sql has been run in Supabase.</div>';
+    return;
   }
-  const{data:all}=await allQ;
-  const list=all||[];
 
-  // Get direct booker IDs separately
-  const{data:directStays}=await sb.from('stays').select('guest_id').eq('channel_type','direct');
-  const directIds=new Set((directStays||[]).map(s=>s.guest_id));
-
-  const direct=list.filter(g=>directIds.has(g.id));
-  const repeat=list.filter(g=>['repeat','vip'].includes(g.lead_status));
-  const withDOB=list.filter(g=>g.date_of_birth);
+  const allEmails   = (d?.all_emails||[]).filter(Boolean);
+  const directEmails= (d?.direct_emails||[]).filter(Boolean);
+  const repeatEmails= (d?.repeat_emails||[]).filter(Boolean);
+  const dobEmails   = (d?.dob_emails||[]).filter(Boolean);
+  const scopeLabel  = STATE.selectedPropertyId
+    ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
+    : 'All Properties';
 
   el.innerHTML=`
-    <div class="sg">
-      <div class="sm"><div class="sl">Total contactable</div><div class="sv">${list.length}</div></div>
-      <div class="sm"><div class="sl">Direct bookers</div><div class="sv">${direct.length}</div></div>
-      <div class="sm"><div class="sl">Repeat & VIP</div><div class="sv">${repeat.length}</div></div>
-      <div class="sm"><div class="sl">With DOB</div><div class="sv">${withDOB.length}</div></div>
+    <div class="sg" id="mkt-stats">
+      <div class="sm"><div class="sl">Total contactable</div><div class="sv">${(d?.total_count||0).toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div></div>
+      <div class="sm"><div class="sl">Direct bookers</div><div class="sv">${(d?.direct_count||0).toLocaleString()}</div><div class="ss">highest value</div></div>
+      <div class="sm"><div class="sl">Repeat & VIP</div><div class="sv">${(d?.repeat_count||0).toLocaleString()}</div><div class="ss">most loyal</div></div>
+      <div class="sm"><div class="sl">With DOB</div><div class="sv">${(d?.dob_count||0).toLocaleString()}</div><div class="ss">birthday targets</div></div>
     </div>
-    <div style="margin-bottom:12px"><button class="btn btnp" onclick='copyToClipboard(${JSON.stringify(list.map(g=>g.email).join(", "))},"All emails copied")'>Copy all ${list.length} emails</button></div>
+    <div style="margin-bottom:12px">
+      <button class="btn btnp" onclick='copyToClipboard(${JSON.stringify(allEmails.join(", "))},"All emails copied — ${allEmails.length} addresses")'>Copy all ${allEmails.length.toLocaleString()} emails</button>
+    </div>
     <div id="mkt-groups"></div>`;
 
   const groups=[
-    {label:'All guests with email',detail:`${list.length} contacts (consented)`,emails:list.map(g=>g.email)},
-    {label:'Direct bookings',detail:`${direct.length} contacts — best for loyalty offers`,emails:direct.map(g=>g.email)},
-    {label:'Repeat & VIP guests',detail:`${repeat.length} contacts — your most valuable`,emails:repeat.map(g=>g.email)},
-    {label:'Guests with DOB on file',detail:`${withDOB.length} contacts — birthday campaign targets`,emails:withDOB.map(g=>g.email)},
+    {label:'All guests with email',detail:`${allEmails.length.toLocaleString()} contacts (consented)`,emails:allEmails},
+    {label:'Direct bookings',detail:`${directEmails.length.toLocaleString()} contacts — best for loyalty offers`,emails:directEmails},
+    {label:'Repeat & VIP guests',detail:`${repeatEmails.length.toLocaleString()} contacts — your most valuable`,emails:repeatEmails},
+    {label:'Guests with DOB on file',detail:`${dobEmails.length.toLocaleString()} contacts — birthday campaign targets`,emails:dobEmails},
   ];
-  document.getElementById('mkt-groups').innerHTML=groups.map((g,i)=>`
+
+  document.getElementById('mkt-groups').innerHTML=groups.map(g=>`
     <div class="card" style="padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500">${escapeHtml(g.label)}</div><div style="font-size:11px;color:#5F5E5A;margin-top:3px">${escapeHtml(g.detail)}</div></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${escapeHtml(g.label)}</div>
+        <div style="font-size:11px;color:var(--gray-text);margin-top:3px">${escapeHtml(g.detail)}</div>
+      </div>
       <button class="btn" onclick='copyToClipboard(${JSON.stringify(g.emails.join(", "))},"Emails copied")'>Copy emails</button>
     </div>`).join('');
 }
 
-// ============================================================================
-// TEMPLATES — editable, no code change needed
-// ============================================================================
-
-function showMktDetail(title, guests){
-  const sp = document.getElementById('sp');
-  sp.style.display = 'block';
-  sp.innerHTML = `<div class="panel-wrap" onclick="if(event.target.classList.contains('panel-wrap'))document.getElementById('sp').style.display='none'">
-    <div class="panel" onclick="event.stopPropagation()">
-      <button class="pc" onclick="document.getElementById('sp').style.display='none'">✕</button>
-      <div class="pn">${escapeHtml(title)}</div>
-      <div class="ps">${guests.length} guests</div>
-      <button class="btn btnp" style="margin-bottom:14px;width:100%" onclick='copyToClipboard(${JSON.stringify(guests.map(g=>g.e).filter(Boolean).join(", "))},"Emails copied")'>Copy all ${guests.filter(g=>g.e).length} emails</button>
-      <div style="max-height:60vh;overflow-y:auto">
-        ${guests.map(g=>`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(g.n||'')}</div></div><div style="font-size:12px;color:var(--gray-text)">${escapeHtml(g.e||'no email')}</div></div>`).join('')}
-      </div>
-    </div>
-  </div>`;
-}
 
 async function renderTemplatesPane(){
   const el=document.getElementById('pane-templates');
@@ -1321,7 +1310,7 @@ async function startImport(){
 async function loadImportHistory(){
   const el = document.getElementById('imp-history');
   if(!el) return;
-  const{data} = await sb.from('campaigns').select('*').in('campaign_type',['custom']).order('sent_at',{ascending:false,nullsFirst:false}).limit(30);
+  const{data} = await sb.from('campaigns').select('*').order('created_at',{ascending:false}).limit(30);
   if(!data||data.length===0){
     el.innerHTML='<div class="empty">No imports yet</div>';
     return;

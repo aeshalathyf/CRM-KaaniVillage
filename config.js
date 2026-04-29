@@ -5,8 +5,8 @@
 // Find these in: Supabase Dashboard → Project Settings → API
 // ============================================================================
 
-const SUPABASE_URL = 'https://inxzqedngfbylpuhplih.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlueHpxZWRuZ2ZieWxwdWhwbGloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczNTY1MDYsImV4cCI6MjA5MjkzMjUwNn0.FpCvYT-CzCjXr4EoFT3tCreGv7fa2B5P_0yr_O3h6GM';
+const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';        // e.g. https://abcdefgh.supabase.co
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';  // long string starting with eyJ...
 
 // Don't change anything below this line unless you know what you're doing
 window.SUPABASE_CONFIG = { url: SUPABASE_URL, key: SUPABASE_ANON_KEY };
