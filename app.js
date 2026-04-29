@@ -185,15 +185,7 @@ async function showApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('user-display').textContent=`${STATE.profile.full_name||STATE.user.email} (${STATE.profile.role})`;
-  // Add change password button to user info
-  const userInfo = document.querySelector('.user-info');
-  if(userInfo && !document.getElementById('change-pwd-btn')){
-    const pwdBtn = document.createElement('button');
-    pwdBtn.id = 'change-pwd-btn';
-    pwdBtn.textContent = 'Change password';
-    pwdBtn.onclick = changePassword;
-    userInfo.insertBefore(pwdBtn, userInfo.lastElementChild);
-  }
+
   await loadInitialData();
   setupPropertyAccess();
   renderPropertySelector();
@@ -1566,3 +1558,12 @@ async function savePropertyAccess(userId){
 // ============================================================================
 checkSession();
 document.getElementById('login-password').addEventListener('keypress',e=>{if(e.key==='Enter')doLogin();});
+
+async function changePassword(){
+  const newPwd = prompt('Enter new password (min 6 characters):');
+  if(!newPwd||newPwd.length<6){toast('Password must be at least 6 characters',true);return;}
+  const{error}=await sb.auth.updateUser({password:newPwd});
+  if(error){toast(error.message,true);return;}
+  toast('Password updated successfully');
+}
+
