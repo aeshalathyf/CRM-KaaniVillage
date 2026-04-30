@@ -856,125 +856,116 @@ function renderChecklist(btn){
 
 async function renderAction(key,btn){
   if(btn){document.querySelectorAll('#action-nav .nb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');}
-
   const tpl=STATE.templates.find(t=>t.template_key===key);
   if(!tpl){document.getElementById('action-content').innerHTML='<div class="empty">Template not found</div>';return;}
+
+  const propIds = STATE.selectedPropertyId!==null
+    ? [STATE.selectedPropertyId]
+    : STATE.accessibleProperties.map(p=>p.id);
+  const tplPropName = STATE.selectedPropertyId
+    ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Kaani Hotels')
+    : 'Kaani Hotels';
 
   let guests=[];
   let segmentLabel='';
 
-  const actionPropGuestIds = await getGuestIdsForProperty();
-  const tplPropName = STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Kaani Hotels';
-  const propLabel = STATE.selectedPropertyId === null ? '' : ' (' + (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'') + ')';
-  function filterByProp(guestList){
-    if(!actionPropGuestIds) return guestList;
-    const idSet = new Set(actionPropGuestIds);
-    return guestList.filter(g => idSet.has(g.id));
-  }
-
   if(key==='review_request'){
-    let q = sb.from('stays').select('*,guests(*)').eq('status','checked_out').gte('departure_date',new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order('departure_date',{ascending:false});
-    if(STATE.selectedPropertyId !== null) q = q.in('property_id', [STATE.selectedPropertyId]);
-    const{data}=await q;
-    guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
-    segmentLabel='Recent checkouts (last 3 days)' + propLabel;
+    const{data}=await sb.rpc('get_recent_checkouts',{prop_ids:propIds,days_back:3});
+    guests=(data||[]);
+    segmentLabel=`Recent checkouts (last 3 days) · ${tplPropName}`;
   }else if(key==='winback'){
-    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(5000);
-    if(actionPropGuestIds){
-      if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
-      else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=data||[]; segmentLabel='First-time + lapsed guests with emails' + propLabel; }
-    } else {
-      const{data}=await q; guests=data||[]; segmentLabel='First-time + lapsed guests with emails';
-    }
+    const gIds=await getGuestIdsForProperty();
+    let q=sb.from('guests').select('id,full_name,email,marketing_consent,lead_status').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(500);
+    if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
+    if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
+    segmentLabel=`First-time + lapsed with emails · ${tplPropName}`;
   }else if(key==='upsell'){
-    let q = sb.from('stays').select('*,guests(*)').in('status',['checked_in','stayover']).gte('nights',3);
-    if(STATE.selectedPropertyId !== null) q = q.in('property_id', [STATE.selectedPropertyId]);
-    const{data}=await q;
-    guests=(data||[]).filter(s=>s.guests?.email&&s.guests?.marketing_consent).map(s=>s.guests);
-    segmentLabel='Current stayovers (3+ nights with email)' + propLabel;
+    const{data}=await sb.rpc('get_inhouse_guests',{prop_ids:propIds});
+    guests=(data||[]).filter(s=>s.nights>=3&&s.email);
+    segmentLabel=`Current stayovers 3+ nights · ${tplPropName}`;
   }else if(key==='birthday'){
-    let q = sb.from('guests').select('*').not('email','is',null).not('date_of_birth','is',null).eq('marketing_consent',true).limit(10000);
-    if(actionPropGuestIds){
-      if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
-      else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=(data||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth)); segmentLabel='Birthdays in next 30 days' + propLabel; }
-    } else {
-      const{data}=await q;
-      guests=(data||[]).filter(g=>{const d=bdayDays(g.date_of_birth);return d!==null&&d<=30;}).sort((a,b)=>bdayDays(a.date_of_birth)-bdayDays(b.date_of_birth));
-      segmentLabel='Birthdays in next 30 days';
-    }
+    const{data}=await sb.rpc('get_upcoming_birthdays',{prop_ids:propIds,days_ahead:30});
+    guests=(data||[]).sort((a,b)=>a.days_until-b.days_until);
+    segmentLabel=`Birthdays next 30 days · ${tplPropName}`;
   }else if(key==='seasonal'){
-    let q = sb.from('guests').select('*').not('email','is',null).eq('marketing_consent',true).limit(10000);
-    if(actionPropGuestIds){
-      if(actionPropGuestIds.length === 0){ guests = []; segmentLabel = 'No guests' + propLabel; }
-      else { q = q.in('id', actionPropGuestIds); const{data}=await q; guests=data||[]; segmentLabel='All guests with marketing consent' + propLabel; }
-    } else {
-      const{data}=await q; guests=data||[]; segmentLabel='All guests with marketing consent';
-    }
+    const gIds=await getGuestIdsForProperty();
+    let q=sb.from('guests').select('id,full_name,email,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(2000);
+    if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
+    if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
+    segmentLabel=`All guests with marketing consent · ${tplPropName}`;
   }
 
-  // Deduplicate by id
+  // Deduplicate
   const seen=new Set();const unique=[];
-  guests.forEach(g=>{if(!seen.has(g.id)){seen.add(g.id);unique.push(g);}});
+  guests.forEach(g=>{const id=g.id||g.guest_id;if(!seen.has(id)){seen.add(id);unique.push(g);}});
   guests=unique;
+
+  // Build the expandable guest list
+  const displayCount=5;
+  const guestEmails=guests.map(g=>g.email).filter(Boolean);
+  let guestListHtml=guests.slice(0,displayCount).map(g=>`<div class="row">
+    <div style="flex:1;min-width:0;color:var(--gray-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.full_name||g.name||'')}</div>
+    <div style="font-size:12px;color:var(--black)">${escapeHtml(g.email||'')}</div>
+  </div>`).join('');
+
+  if(guests.length>displayCount){
+    const extraId='gl-'+Date.now();
+    window['_gdata_'+extraId]=guests.map(g=>({n:g.full_name||g.name||'',e:g.email||''}));
+    guestListHtml+=`<div style="font-size:12px;color:var(--kaani-orange);padding-top:8px;cursor:pointer;font-weight:500" data-id="${extraId}" onclick="expandGuestList(this)">▾ Show all ${guests.length} guests</div>`;
+  }
 
   document.getElementById('action-content').innerHTML=`
     <div class="card">
       <div class="ch"><div class="ct">${escapeHtml(tpl.name)}</div><span class="badge be">${escapeHtml(tpl.description||'')}</span></div>
       <div class="sec">Segment: ${escapeHtml(segmentLabel)} (${guests.length} guests)</div>
-      <div style="margin-bottom:14px;max-height:200px;overflow-y:auto">
-        ${guests.slice(0,5).map(g=>`<div class="row"><div style="flex:1;min-width:0;color:#5F5E5A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.full_name)}</div><div style="font-size:12px;color:#2C2C2A">${escapeHtml(g.email||'')}</div></div>`).join('')+(guests.length>5?`<div style="font-size:12px;color:#5F5E5A;padding-top:8px">+${guests.length-5} more</div>`:'')}
-      </div>
+      <div style="margin-bottom:14px;max-height:220px;overflow-y:auto">${guestListHtml}</div>
       <div class="sec">Subject</div>
       <div class="tpl">${escapeHtml(tpl.subject||'')}</div>
       <div class="sec">Body template</div>
-      <div class="tpl" id="tpl-body">${escapeHtml(tpl.body||'')}</div>
+      <div class="tpl" id="tpl-body-${key}">${escapeHtml(tpl.body||'')}</div>
       <div class="btns">
-        <button class="btn btnp" onclick="copyToClipboard(document.getElementById('tpl-body').innerText,'Template copied')">Copy email template</button>
-        <button class="btn" style="background:var(--kaani-cream-deep)" onclick="copyWATemplate('${key}','${escapeHtml(tplPropName)}')">📱 Copy WhatsApp</button>
-        <button class="btn" onclick='copyToClipboard(${JSON.stringify(guests.map(g=>g.email).join(", "))},"Emails copied")'>Copy ${guests.length} emails</button>
+        <button class="btn btnp" onclick="copyToClipboard(document.getElementById('tpl-body-${key}').innerText,'Template copied')">Copy email template</button>
+        <button class="btn" onclick="copyWATemplate('${key}','${escapeHtml(tplPropName)}')">📱 Copy WhatsApp</button>
+        <button class="btn" onclick='copyToClipboard(${JSON.stringify(guestEmails.join(", "))},"${guestEmails.length} emails copied")'>Copy ${guestEmails.length} emails</button>
         <button class="btn" onclick="logCampaignSend('${key}',${guests.length})">Log as sent</button>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Use <strong>{{first_name}}</strong> and <strong>{{property_name}}</strong> as placeholders — replace before sending.</div>
-      <div style="margin-top:12px;padding:12px 14px;background:var(--kaani-cream-deep);border-radius:10px;border:1px solid var(--line-peach)">
+      <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Use <strong>{{first_name}}</strong> and <strong>{{property_name}}</strong> — replace before sending.</div>
+      <div style="margin-top:12px;padding:14px;background:var(--kaani-cream-deep);border-radius:10px;border:1px solid var(--line-peach)">
         <div class="sec" style="margin-bottom:8px">WhatsApp message preview</div>
-        <div id="wa-preview-${key}" style="font-size:13px;color:var(--black-soft);line-height:1.7;white-space:pre-wrap;font-family:inherit"></div>
+        <div id="wa-preview-${key}" style="font-size:13px;color:var(--black-soft);line-height:1.7;white-space:pre-wrap;font-family:inherit;min-height:40px;color:var(--gray-text);font-style:italic">Loading preview...</div>
       </div>
-  
-    <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Templates use {{first_name}} and {{property_name}} — replace before sending. Edit the template in the Templates tab.</div>
     </div>`;
-}
 
-
-function copyWATemplate(key, propName){
-  const tpl = WA_TEMPLATES[key] || '';
-  const text = tpl.replace(/{{property_name}}/g, propName || 'Kaani Hotels');
-  navigator.clipboard.writeText(text).then(()=>{
-    toast('WhatsApp message copied — paste into WhatsApp Web or Business app');
+  // Populate WA preview immediately after DOM update
+  requestAnimationFrame(()=>{
+    const wp=document.getElementById('wa-preview-'+key);
+    if(wp&&WA_TEMPLATES&&WA_TEMPLATES[key]){
+      wp.style.fontStyle='normal';
+      wp.style.color='var(--black-soft)';
+      wp.textContent=WA_TEMPLATES[key]
+        .replace(/{{property_name}}/g,tplPropName)
+        .replace(/{{first_name}}/g,'[Guest name]');
+    }else if(wp){
+      wp.textContent='WhatsApp template not configured.';
+    }
   });
 }
 
 
+
 function expandGuestList(btn){
-  const id = btn.getAttribute('data-id');
-  const guests = window['_gdata_'+id]||[];
-  const parent = btn.parentElement;
-  parent.style.maxHeight = 'none';
-  parent.style.overflow = 'visible';
-  let html = `<div style="max-height:300px;overflow-y:auto;border:1px solid var(--line-peach);border-radius:8px;padding:4px 0;margin-bottom:8px">`;
-  html += guests.map(g=>`<div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--line-peach);font-size:13px"><span style="color:var(--black-soft)">${escapeHtml(g.n||'')}</span><span style="color:var(--gray-text);font-size:12px">${escapeHtml(g.e||'')}</span></div>`).join('');
-  html += `</div><div style="font-size:12px;color:var(--kaani-orange);cursor:pointer;font-weight:500" onclick="this.parentElement.querySelector('div').remove();this.remove()">▴ Collapse</div>`;
-  parent.innerHTML = html;
+  const id=btn.getAttribute('data-id');
+  const guests=window['_gdata_'+id]||[];
+  const parent=btn.parentElement;
+  let html=`<div style="max-height:300px;overflow-y:auto;border:1px solid var(--line-peach);border-radius:8px;margin-bottom:8px">`;
+  html+=guests.map(g=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line-peach);font-size:13px">
+    <span style="color:var(--black-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${escapeHtml(g.n||'')}</span>
+    <span style="color:var(--gray-text);font-size:12px;margin-left:10px;flex-shrink:0">${escapeHtml(g.e||'')}</span>
+  </div>`).join('');
+  html+=`</div><div style="font-size:12px;color:var(--kaani-orange);cursor:pointer;font-weight:500" onclick="this.previousElementSibling.style.display='none';this.style.display='none'">▴ Collapse</div>`;
+  parent.innerHTML=html;
 }
 
-  // Populate WA preview
-  // Populate WA preview after render
-  setTimeout(()=>{
-    const wp=document.getElementById('wa-preview-'+key);
-    if(wp){
-      const tpl=WA_TEMPLATES&&WA_TEMPLATES[key]?WA_TEMPLATES[key]:'WhatsApp template not found. Check WA_TEMPLATES object.';
-      wp.textContent=tpl.replace(/{{property_name}}/g,tplPropName||'Kaani Hotels').replace(/{{first_name}}/g,'[First Name]');
-    }
-  },100);
 
 async function logCampaignSend(key,count){
   const tpl=STATE.templates.find(t=>t.template_key===key);
