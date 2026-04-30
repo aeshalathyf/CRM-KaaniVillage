@@ -220,10 +220,10 @@ async function showApp(){
   const firstBtn=document.querySelector('.nav .nb');
   if(firstBtn) firstBtn.classList.add('on');
 
-  // Render property selector AFTER DOM settles
-  requestAnimationFrame(()=>{
-    renderPropertySelector();
-  });
+  // Render property selector — call immediately and again after render
+  renderPropertySelector();
+  setTimeout(renderPropertySelector, 300);
+  setTimeout(renderPropertySelector, 800);
 
   await renderOverview();
 }
@@ -254,28 +254,32 @@ function renderPropertySelector(){
   const pills=document.getElementById('prop-pills');
   if(!bar||!pills)return;
 
-  // Fallback: if accessibleProperties empty but properties loaded, use all properties
-  if(STATE.accessibleProperties.length===0 && STATE.properties.length>0){
-    setupPropertyAccess();
-  }
+  // Always use properties directly — don't depend on accessibleProperties timing
+  const propsToShow = STATE.accessibleProperties && STATE.accessibleProperties.length > 0
+    ? STATE.accessibleProperties
+    : STATE.properties;
 
-  if(STATE.accessibleProperties.length<=1 && STATE.profile.role!=='admin'){
-    bar.style.display='none';
+  if(propsToShow.length === 0){
+    // Properties not loaded yet — try again shortly
+    setTimeout(renderPropertySelector, 200);
     return;
   }
 
   bar.style.display='flex';
 
   let html='';
-  if(STATE.profile.role==='admin'||(STATE.profile.role==='manager'&&STATE.accessibleProperties.length>1)){
-    const allLabel=STATE.profile.role==='admin'?'All Properties':'All My Properties';
-    html+=`<button class="pp ${STATE.selectedPropertyId===null?'on':''}" onclick="selectProperty(null)">${allLabel}</button>`;
+  // Always show "All Properties" for admin
+  const role = STATE.profile?.role || 'staff';
+  if(role === 'admin' || role === 'manager'){
+    html+=`<button class="pp ${STATE.selectedPropertyId===null?'on':''}" onclick="selectProperty(null)">${role==='admin'?'All Properties':'All My Properties'}</button>`;
   }
-  STATE.accessibleProperties.forEach(p=>{
-    html+=`<button class="pp ${parseInt(STATE.selectedPropertyId)===parseInt(p.id)?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
+  propsToShow.forEach(p=>{
+    const isOn = parseInt(STATE.selectedPropertyId)===parseInt(p.id);
+    html+=`<button class="pp ${isOn?'on':''}" onclick="selectProperty(${p.id})">${escapeHtml(p.name)}</button>`;
   });
 
   pills.innerHTML=html;
+  console.log('Property selector rendered:', propsToShow.length+1, 'pills');
 }
 
 async function selectProperty(propId){
