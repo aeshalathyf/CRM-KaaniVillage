@@ -207,7 +207,6 @@ async function showApp(){
 
   await loadInitialData();
   setupPropertyAccess();
-  renderPropertySelector();
 
   // Admin tab
   const adminTab=document.getElementById('admin-tab');
@@ -220,6 +219,11 @@ async function showApp(){
   if(ov) ov.classList.add('on');
   const firstBtn=document.querySelector('.nav .nb');
   if(firstBtn) firstBtn.classList.add('on');
+
+  // Render property selector AFTER DOM settles
+  requestAnimationFrame(()=>{
+    renderPropertySelector();
+  });
 
   await renderOverview();
 }
@@ -249,6 +253,11 @@ function renderPropertySelector(){
   const bar=document.getElementById('prop-bar');
   const pills=document.getElementById('prop-pills');
   if(!bar||!pills)return;
+
+  // Fallback: if accessibleProperties empty but properties loaded, use all properties
+  if(STATE.accessibleProperties.length===0 && STATE.properties.length>0){
+    setupPropertyAccess();
+  }
 
   if(STATE.accessibleProperties.length<=1 && STATE.profile.role!=='admin'){
     bar.style.display='none';
@@ -546,6 +555,71 @@ async function renderDashboard(){
   const nightsDist = Object.fromEntries(nightsData.map(r=>[r.nights,+r.stay_count]));
   const typeCounts = {tourist, local};
   generateInsights(stats, {total_guests:q.total_guests,pct_email:pct(q.has_email,q.total_guests)}, sourceCounts, natCounts, typeCounts, nightsDist);
+}
+
+
+
+function generateInsights(stats, quality, sources, nats, types, nightsDist){
+  const el = document.getElementById('insights-body');
+  if(!el) return;
+  const insights = [];
+  const totalStays = Object.values(sources).reduce((a,b)=>a+b, 0);
+  const totalGuests = Object.values(nats).reduce((a,b)=>a+b, 0);
+
+  // Source concentration
+  if(totalStays > 0){
+    const sorted = Object.entries(sources).sort((a,b)=>b[1]-a[1]);
+    const top = sorted[0];
+    const pct = Math.round(top[1]/totalStays*100);
+    if(pct > 35) insights.push({
+      title:'Source concentration risk.',
+      body:`${pct}% of stays come through ${srcShort(top[0])}. Diversifying reduces OTA dependency and saves commission costs.`
+    });
+  }
+
+  // Nationality dominance
+  if(totalGuests > 0){
+    const sorted = Object.entries(nats).sort((a,b)=>b[1]-a[1]);
+    const top = sorted[0];
+    const pct = Math.round(top[0][1]/totalGuests*100);
+    if(sorted.length > 0){
+      const topNat = sorted[0][0];
+      const topPct = Math.round(sorted[0][1]/totalGuests*100);
+      if(topPct > 25) insights.push({
+        title:`${topNat} market dominance.`,
+        body:`${topPct}% of guests are from ${topNat}. Consider targeted campaigns and culturally tailored welcome touches.`
+      });
+    }
+  }
+
+  // Long stay opportunity
+  const totalN = Object.values(nightsDist).reduce((a,b)=>a+b, 0);
+  const longStays = Object.entries(nightsDist).filter(([n])=>+n>=7).reduce((a,[,v])=>a+v, 0);
+  if(totalN > 0 && longStays/totalN > 0.25) insights.push({
+    title:'Long-stay loyalty opportunity.',
+    body:`${Math.round(longStays/totalN*100)}% of stays are 7+ nights — these guests are your highest-value win-back targets.`
+  });
+
+  // Email gap
+  const emailPct = quality.pct_email || 0;
+  if(emailPct < 90) insights.push({
+    title:'Email capture gap.',
+    body:`${emailPct}% of guests have an email on file. Every extra 1% here means more reach for all campaigns.`
+  });
+
+  // Direct booking gap
+  const directCount = Object.entries(sources).filter(([s])=>s&&s.toUpperCase().includes('DIRECT')).reduce((a,[,v])=>a+v, 0);
+  if(totalStays > 0){
+    const directPct = Math.round(directCount/totalStays*100);
+    if(directPct < 20) insights.push({
+      title:'Direct booking upside.',
+      body:`Only ${directPct}% of bookings are direct. Industry benchmark is 20-25%. The win-back campaign in your Plan tab targets this directly.`
+    });
+  }
+
+  el.innerHTML = insights.length
+    ? insights.map(i=>`<div class="insight-item"><strong>${i.title}</strong> ${i.body}</div>`).join('')
+    : '<div style="font-size:13px;color:var(--gray-text);padding:10px 0">Import data across more properties to generate meaningful insights.</div>';
 }
 
 
