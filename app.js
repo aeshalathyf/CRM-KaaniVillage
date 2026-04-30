@@ -359,21 +359,7 @@ function sw(tab,btn){
 // ============================================================================
 // PROPERTY SELECTOR — affects all data queries across tabs
 // ============================================================================
-function renderPropertySelector() {
-  const bar = document.getElementById('property-bar');
-  if (!bar) return;
-  const sel = STATE.selectedPropertyId;
-  const all = sel === 'all';
-  const selectedName = all ? 'All Properties' : (STATE.properties.find(p => p.id == sel)?.name || 'Unknown');
-  let html = `<div class="prop-selector">
-    <div class="prop-label">Viewing:</div>
-    <button class="prop-pill ${all ? 'on' : ''}" onclick="changeProperty(null)">All Properties</button>`;
-  STATE.properties.forEach(p => {
-    html += `<button class="prop-pill ${sel == p.id ? 'on' : ''}" onclick="changeProperty(${p.id})">${escapeHtml(p.name)}</button>`;
-  });
-  html += `</div>`;
-  bar.innerHTML = html;
-}
+// (duplicate renderPropertySelector removed)
 
 async function getGuestIdsForProperty() {
   // Returns null = all guests, or array of guest IDs for specific property
