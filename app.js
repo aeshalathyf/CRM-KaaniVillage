@@ -365,7 +365,15 @@ async function getGuestIdsForProperty() {
   // Returns null = all guests, or array of guest IDs for specific property
   if (STATE.selectedPropertyId === null) return null;
   const propIds = [STATE.selectedPropertyId];
-  const { data } = await sb.from('stays').select('guest_id').in('property_id', propIds);
+  let allStays = [], page = 0;
+  while(true) {
+    const {data:batch} = await sb.from('stays').select('guest_id').in('property_id', propIds).range(page*1000,(page+1)*1000-1);
+    if(!batch||batch.length===0) break;
+    allStays = allStays.concat(batch);
+    if(batch.length < 1000) break;
+    page++;
+  }
+  const data = allStays;
   return [...new Set((data || []).map(s => s.guest_id))];
 }
 
@@ -386,8 +394,7 @@ async function renderOverview(){
     sb.rpc('get_inhouse_guests', {prop_ids: propIds}),
     sb.rpc('get_recent_checkouts', {prop_ids: propIds, days_back: 3}),
     // Fetch DOB guests directly — more reliable than RPC date math
-    sb.from('stays').select('guest_id').in('property_id', propIds).limit(10000)
-      .then(async r => {
+    sb.from('stays').select('guest_id').in('property_id', propIds).then(async r => {
         if(r.error || !r.data) return {data:[]};
         const gIds = [...new Set(r.data.map(s=>s.guest_id))];
         if(!gIds.length) return {data:[]};
@@ -408,18 +415,30 @@ async function renderOverview(){
   const checkouts = checkoutsRes.data || [];
 
   // Calculate birthday days in JS — no RPC date math needed
-  const today = new Date(); today.setHours(0,0,0,0);
-  const in30 = new Date(today); in30.setDate(in30.getDate()+30);
-  const birthdays = (bdayGuestsRes.data || [])
-    .map(g => {
-      const dob = new Date(g.date_of_birth);
-      let bday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
-      if(bday < today) bday = new Date(today.getFullYear()+1, dob.getMonth(), dob.getDate());
-      const days = Math.round((bday - today) / 86400000);
-      return {...g, days_until: days};
-    })
-    .filter(g => g.days_until >= 0 && g.days_until <= 30)
-    .sort((a,b) => a.days_until - b.days_until);
+  // Use RPC result if available, otherwise calculate in JS as fallback
+  let birthdays = [];
+  if(bdayGuestsRes.data && !bdayGuestsRes._fallback){
+    birthdays = (bdayGuestsRes.data || []).sort((a,b)=>(a.days_until||0)-(b.days_until||0));
+  } else {
+    // JS fallback — fetch all property guests with DOB and calculate
+    const{data:fallbackGuests} = await sb.from('stays')
+      .select('guests!inner(id,full_name,email,date_of_birth,marketing_consent)')
+      .in('property_id', propIds)
+      .not('guests.date_of_birth','is',null)
+      .not('guests.email','is',null);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const seen = new Set();
+    birthdays = (fallbackGuests||[])
+      .map(s=>s.guests).filter(g=>g&&!seen.has(g.id)&&seen.add(g.id))
+      .map(g=>{
+        const dob=new Date(g.date_of_birth);
+        let bday=new Date(today.getFullYear(),dob.getMonth(),dob.getDate());
+        if(bday<today)bday=new Date(today.getFullYear()+1,dob.getMonth(),dob.getDate());
+        return{...g,days_until:Math.round((bday-today)/86400000)};
+      })
+      .filter(g=>g.days_until>=0&&g.days_until<=30)
+      .sort((a,b)=>a.days_until-b.days_until);
+  }
   const scopeLabel = STATE.selectedPropertyId
     ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
     : 'All Properties';
@@ -674,10 +693,13 @@ async function renderGuestsPane(){
     <div class="sm"><div class="sl">With DOB</div><div class="sv">${qual?.has_dob||0}</div><div class="ss">${qual?.pct_dob||0}%</div></div>`;
 
   // Populate nationality + source filters
-  const[natsRes, sourcesRes]=await Promise.all([
-    sb.from('guests').select('nationality').not('nationality','is',null).limit(10000),
-    sb.from('stays').select('source').not('source','is',null).limit(10000)
+  // Use RPC nationality breakdown — already has all nationalities, no row limit
+  const[natsRpc, sourcesRes]=await Promise.all([
+    sb.rpc('get_nationality_breakdown', {prop_ids: [1,2,3,4,5]}),
+    sb.from('stays').select('source').not('source','is',null)
   ]);
+  // Build natsRes compatible structure from RPC
+  const natsRes = {data: (natsRpc.data||[]).map(r=>({nationality:r.nationality}))};
   const uniq=[...new Set((natsRes.data||[]).map(n=>n.nationality))].sort();
   const ne=document.getElementById('gfnat');
   if(ne){uniq.forEach(n=>{const o=document.createElement('option');o.value=n;o.text=n;ne.appendChild(o);});}
@@ -1006,7 +1028,7 @@ async function renderAction(key,btn){
     segmentLabel=`Recent checkouts (last 3 days) · ${tplPropName}`;
   }else if(key==='winback'){
     const gIds=await getGuestIdsForProperty();
-    let q=sb.from('guests').select('id,full_name,email,marketing_consent,lead_status').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false}).limit(500);
+    let q=sb.from('guests').select('id,full_name,email,marketing_consent,lead_status').not('email','is',null).eq('marketing_consent',true).in('lead_status',['first_time','lapsed']).order('last_stay_date',{ascending:false});
     if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
     if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
     segmentLabel=`First-time + lapsed with emails · ${tplPropName}`;
@@ -1022,7 +1044,7 @@ async function renderAction(key,btn){
       .not('date_of_birth','is',null)
       .not('email','is',null)
       .eq('marketing_consent',true)
-      .limit(5000);
+      ;
     if(gIds && gIds.length > 0){
       // Fetch in chunks to avoid URL limit
       let allBday = [];
@@ -1051,7 +1073,7 @@ async function renderAction(key,btn){
         .not('date_of_birth','is',null)
         .not('email','is',null)
         .eq('marketing_consent',true)
-        .limit(5000);
+        ;
       const today = new Date(); today.setHours(0,0,0,0);
       guests = (allData||[]).map(g=>{
         const dob = new Date(g.date_of_birth);
@@ -1064,7 +1086,7 @@ async function renderAction(key,btn){
     segmentLabel=`Birthdays next 30 days · ${tplPropName}`;
   }else if(key==='seasonal'){
     const gIds=await getGuestIdsForProperty();
-    let q=sb.from('guests').select('id,full_name,email,marketing_consent').not('email','is',null).eq('marketing_consent',true).limit(2000);
+    let q=sb.from('guests').select('id,full_name,email,marketing_consent').not('email','is',null).eq('marketing_consent',true);
     if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
     if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
     segmentLabel=`All guests with marketing consent · ${tplPropName}`;
@@ -1327,7 +1349,7 @@ async function downloadGuestReport(){
   toast('Generating guest report...');
   const propIds=getFilterPropertyIds();
   const isAll=!STATE.selectedPropertyId;
-  let q=sb.from('guests').select('*').order('last_stay_date',{ascending:false}).limit(50000);
+  let q=sb.from('guests').select('*').order('last_stay_date',{ascending:false});
   if(!isAll){
     const{data:propStays}=await sb.from('stays').select('guest_id').in('property_id',propIds);
     const ids=Array.from(new Set((propStays||[]).map(s=>s.guest_id)));
@@ -1345,7 +1367,7 @@ async function downloadStaysReport(){
   const from=document.getElementById('rep-from').value;
   const to=document.getElementById('rep-to').value;
   const propIds=getFilterPropertyIds();
-  let q=sb.from('stays').select('*,guests(full_name,email,nationality),properties(name)').in('property_id',propIds).limit(50000);
+  let q=sb.from('stays').select('*,guests(full_name,email,nationality),properties(name)').in('property_id',propIds);
   if(from)q=q.gte('arrival_date',from);
   if(to)q=q.lte('arrival_date',to);
   const{data}=await q;
@@ -1370,13 +1392,13 @@ async function downloadNationalityReport(){
 }
 
 async function downloadRepeatReport(){
-  const{data}=await sb.from('guests').select('*').gte('total_stays',2).order('total_stays',{ascending:false}).limit(50000);
+  const{data}=await sb.from('guests').select('*').gte('total_stays',2).order('total_stays',{ascending:false});
   const rows=(data||[]).map(g=>[g.full_name,g.email,g.nationality,g.total_stays,g.total_nights,g.total_revenue_usd,g.first_stay_date,g.last_stay_date]);
   downloadCSV('kaani_repeat_guests_'+new Date().toISOString().slice(0,10)+'.csv',['Name','Email','Nationality','Stays','Nights','Revenue','First Stay','Last Stay'],rows);
 }
 
 async function downloadCampaignReport(){
-  const{data}=await sb.from('campaigns').select('*').order('sent_at',{ascending:false}).limit(1000);
+  const{data}=await sb.from('campaigns').select('*').order('sent_at',{ascending:false});
   const rows=(data||[]).map(c=>[c.name,c.campaign_type,c.status,c.sent_at,c.emails_sent,c.responses_received,c.bookings_attributed,c.revenue_attributed]);
   downloadCSV('kaani_campaigns_'+new Date().toISOString().slice(0,10)+'.csv',['Name','Type','Status','Sent At','Emails Sent','Responses','Bookings','Revenue'],rows);
 }
@@ -1532,7 +1554,7 @@ async function startImport(){
 async function loadImportHistory(){
   const el = document.getElementById('imp-history');
   if(!el) return;
-  const{data} = await sb.from('campaigns').select('*').order('created_at',{ascending:false,nullsFirst:false}).limit(50);
+  const{data} = await sb.from('campaigns').select('*').order('created_at',{ascending:false,nullsFirst:false});
   if(!data||data.length===0){
     el.innerHTML='<div class="empty">No imports yet</div>';
     return;
@@ -1818,7 +1840,7 @@ async function renderAdminPane(){
   try {
     const[usersRes, dupsRes] = await Promise.all([
       sb.from('user_profiles').select('*').order('created_at'),
-      sb.from('v_potential_duplicates').select('*').limit(50).then(r=>r.error?{data:[]}:r)
+      sb.from('v_potential_duplicates').select('*').limit(200).then(r=>r.error?{data:[]}:r)
     ]);
 
     if(usersRes.error){
