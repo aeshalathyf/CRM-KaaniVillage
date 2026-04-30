@@ -722,14 +722,14 @@ async function loadGuests(){
     });
 
     if(error){
-      // Fallback to direct query if RPC not available
-      console.warn('search_guests RPC not available, falling back:', error.message);
+      console.warn('search_guests RPC error:', error.message, 'Falling back...');
       await loadGuestsFallback(q, fst, fnat, fsrc, fbday, from);
       return;
     }
 
     let guests = data || [];
     const totalCount = guests.length > 0 ? Number(guests[0].total_count) : 0;
+    console.log('search_guests returned:', guests.length, 'guests, total:', totalCount, 'propIds:', propIds);
 
     // Birthday filter — client side
     if(fbday && +fbday > 0){
@@ -960,8 +960,52 @@ async function renderAction(key,btn){
     guests=(data||[]).filter(s=>s.nights>=3&&s.email);
     segmentLabel=`Current stayovers 3+ nights · ${tplPropName}`;
   }else if(key==='birthday'){
-    const{data}=await sb.rpc('get_upcoming_birthdays',{prop_ids:propIds,days_ahead:30});
-    guests=(data||[]).sort((a,b)=>a.days_until-b.days_until);
+    // Fetch guests with DOB and calculate in JS (RPC has date math issues)
+    const gIds = await getGuestIdsForProperty();
+    let bdayQ = sb.from('guests')
+      .select('id,full_name,email,date_of_birth,marketing_consent')
+      .not('date_of_birth','is',null)
+      .not('email','is',null)
+      .eq('marketing_consent',true)
+      .limit(5000);
+    if(gIds && gIds.length > 0){
+      // Fetch in chunks to avoid URL limit
+      let allBday = [];
+      for(let i=0;i<gIds.length;i+=500){
+        const chunk = gIds.slice(i,i+500);
+        const{data:chunk_data} = await sb.from('guests')
+          .select('id,full_name,email,date_of_birth,marketing_consent')
+          .in('id', chunk)
+          .not('date_of_birth','is',null)
+          .not('email','is',null)
+          .eq('marketing_consent',true);
+        if(chunk_data) allBday = allBday.concat(chunk_data);
+      }
+      const today = new Date(); today.setHours(0,0,0,0);
+      guests = allBday.map(g=>{
+        const dob = new Date(g.date_of_birth);
+        let bday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+        if(bday < today) bday = new Date(today.getFullYear()+1, dob.getMonth(), dob.getDate());
+        return {...g, days_until: Math.round((bday-today)/86400000)};
+      }).filter(g=>g.days_until>=0&&g.days_until<=30)
+        .sort((a,b)=>a.days_until-b.days_until);
+    } else if(gIds === null){
+      // All properties
+      const{data:allData} = await sb.from('guests')
+        .select('id,full_name,email,date_of_birth,marketing_consent')
+        .not('date_of_birth','is',null)
+        .not('email','is',null)
+        .eq('marketing_consent',true)
+        .limit(5000);
+      const today = new Date(); today.setHours(0,0,0,0);
+      guests = (allData||[]).map(g=>{
+        const dob = new Date(g.date_of_birth);
+        let bday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+        if(bday < today) bday = new Date(today.getFullYear()+1, dob.getMonth(), dob.getDate());
+        return {...g, days_until: Math.round((bday-today)/86400000)};
+      }).filter(g=>g.days_until>=0&&g.days_until<=30)
+        .sort((a,b)=>a.days_until-b.days_until);
+    }
     segmentLabel=`Birthdays next 30 days · ${tplPropName}`;
   }else if(key==='seasonal'){
     const gIds=await getGuestIdsForProperty();
