@@ -381,17 +381,45 @@ async function renderOverview(){
     : STATE.accessibleProperties.map(p=>p.id);
   if(!propIds.length){el.innerHTML='<div class="empty">No properties.</div>';return;}
 
-  const [statsRes, inhouseRes, checkoutsRes, bdayRes] = await Promise.all([
+  const [statsRes, inhouseRes, checkoutsRes, bdayGuestsRes] = await Promise.all([
     sb.rpc('get_overview_stats', {prop_ids: propIds}),
     sb.rpc('get_inhouse_guests', {prop_ids: propIds}),
     sb.rpc('get_recent_checkouts', {prop_ids: propIds, days_back: 3}),
-    sb.rpc('get_upcoming_birthdays', {prop_ids: propIds, days_ahead: 30}).then(r=>r.error?{data:[]}:r)
+    // Fetch DOB guests directly — more reliable than RPC date math
+    sb.from('stays').select('guest_id').in('property_id', propIds).limit(10000)
+      .then(async r => {
+        if(r.error || !r.data) return {data:[]};
+        const gIds = [...new Set(r.data.map(s=>s.guest_id))];
+        if(!gIds.length) return {data:[]};
+        // Fetch in chunks of 500
+        let all = [];
+        for(let i=0;i<gIds.length;i+=500){
+          const chunk = gIds.slice(i,i+500);
+          const res = await sb.from('guests').select('id,full_name,email,date_of_birth,marketing_consent')
+            .in('id',chunk).not('date_of_birth','is',null).not('email','is',null).eq('marketing_consent',true);
+          if(res.data) all = all.concat(res.data);
+        }
+        return {data: all};
+      })
   ]);
 
   const stats = statsRes.data || {};
   const inhouse = inhouseRes.data || [];
   const checkouts = checkoutsRes.data || [];
-  const birthdays = (bdayRes.data || []).sort((a,b)=>a.days_until-b.days_until);
+
+  // Calculate birthday days in JS — no RPC date math needed
+  const today = new Date(); today.setHours(0,0,0,0);
+  const in30 = new Date(today); in30.setDate(in30.getDate()+30);
+  const birthdays = (bdayGuestsRes.data || [])
+    .map(g => {
+      const dob = new Date(g.date_of_birth);
+      let bday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      if(bday < today) bday = new Date(today.getFullYear()+1, dob.getMonth(), dob.getDate());
+      const days = Math.round((bday - today) / 86400000);
+      return {...g, days_until: days};
+    })
+    .filter(g => g.days_until >= 0 && g.days_until <= 30)
+    .sort((a,b) => a.days_until - b.days_until);
   const scopeLabel = STATE.selectedPropertyId
     ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
     : 'All Properties';
@@ -680,12 +708,16 @@ async function loadGuests(){
 
     let query=sb.from('guests').select('*',{count:'exact'}).order('last_stay_date',{ascending:false,nullsFirst:false}).range(from,to);
 
-    // Property filter
-    if(STATE.selectedPropertyId !== null){
-      const propGuestIds = await getGuestIdsForProperty();
-      if(propGuestIds.length === 0){STATE.currentGuests=[];renderGuestList(0);return;}
-      query = query.in('id', propGuestIds);
-    }
+    // Property filter — always apply based on accessible properties
+    const propIds = STATE.selectedPropertyId !== null
+      ? [STATE.selectedPropertyId]
+      : STATE.accessibleProperties.map(p=>p.id);
+    
+    // Get guest IDs who have stays at selected properties
+    const{data:propStays} = await sb.from('stays').select('guest_id').in('property_id', propIds);
+    const propGuestIds = [...new Set((propStays||[]).map(s=>s.guest_id))];
+    if(propGuestIds.length === 0){STATE.currentGuests=[];renderGuestList(0);return;}
+    query = query.in('id', propGuestIds);
 
     // Text search
     if(q){query=query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,nationality.ilike.%${q}%`);}
@@ -1579,39 +1611,203 @@ async function importCSV(text, propId){
 // ============================================================================
 // ADMIN
 // ============================================================================
-async function renderAdminPane(){
-  if(STATE.profile.role!=='admin'){document.getElementById('pane-admin').innerHTML='<div class="empty">Admin access required</div>';return;}
-  const{data:users,error:usersErr}=await sb.from('user_profiles').select('*').order('created_at');
-  if(usersErr){document.getElementById('pane-admin').innerHTML='<div class="empty">Error loading admin: '+escapeHtml(usersErr.message)+'</div>';return;}
-  let dups=[];
-  try{const r=await sb.from('v_potential_duplicates').select('*').limit(30);dups=r.data||[];}catch(e){dups=[];}
 
-  document.getElementById('pane-admin').innerHTML=`
-    <div class="card">
-      <div class="ct" style="margin-bottom:10px">Team members</div>
-      <div class="cd">Add team members in Supabase → Authentication → Users → Add user (tick Auto Confirm). They log in here, you assign their role and properties below.</div>
-      ${(users||[]).map(u=>`<div class="row">
-        <div style="flex:1;min-width:0"><div class="rn">${escapeHtml(u.full_name||u.user_id)}</div><div style="font-size:11px;color:var(--gray-text)">${u.role}${u.user_id===STATE.user.id?' · (you)':''}</div></div>
-        <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--border-subtle);font-family:inherit;background:#fff;margin-right:8px">
-          <option value="staff" ${u.role==='staff'?'selected':''}>Staff</option>
-          <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
-          <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-        </select>
-        <button class="btn" style="font-size:11px;padding:7px 12px" onclick="manageProperties('${u.user_id}','${escapeHtml(u.full_name||'')}')">Properties</button>
-      </div>`).join('')}
-    </div>
-    <div class="card">
-      <div class="ct" style="margin-bottom:10px">Potential duplicates (${dups?.length||0})</div>
-      ${(dups||[]).slice(0,15).map(d=>`<div class="row"><div style="flex:1;min-width:0"><div class="rn">${escapeHtml(d.name_1)} ↔ ${escapeHtml(d.name_2)}</div><div style="font-size:11px;color:var(--gray-text)">${escapeHtml(d.match_reason)}</div></div></div>`).join('')||'<div class="empty">No duplicates detected</div>'}
-    </div>
-    <div class="card">
-      <div class="ct" style="margin-bottom:10px">Quick backup</div>
-      <div class="btns">
-        <button class="btn" onclick="downloadGuestReport()">Download all guests (CSV)</button>
-        <button class="btn" onclick="downloadStaysReport()">Download all stays (CSV)</button>
-      </div>
-    </div>`;
+async function dismissDuplicate(id1, id2, btn){
+  await sb.from('communications').insert([
+    {guest_id:id1,channel:'note',direction:'internal',body:`Confirmed different person — dismissed duplicate match with guest ${id2}`,staff_user_id:STATE.user.id},
+    {guest_id:id2,channel:'note',direction:'internal',body:`Confirmed different person — dismissed duplicate match with guest ${id1}`,staff_user_id:STATE.user.id}
+  ]).catch(()=>{});
+  const row = btn.closest('div[style*="padding:14px"]');
+  if(row){row.style.opacity='0.3';row.style.pointerEvents='none';}
+  toast('Marked as different people');
 }
+
+async function openMergePanel(id1, name1, id2, name2){
+  // Load full details of both guests
+  const [r1, r2, stays1, stays2] = await Promise.all([
+    sb.from('guests').select('*').eq('id',id1).single(),
+    sb.from('guests').select('*').eq('id',id2).single(),
+    sb.from('stays').select('*,properties(name)').eq('guest_id',id1).order('arrival_date',{ascending:false}),
+    sb.from('stays').select('*,properties(name)').eq('guest_id',id2).order('arrival_date',{ascending:false})
+  ]);
+
+  const g1 = r1.data || {}; const g2 = r2.data || {};
+  const s1 = stays1.data || []; const s2 = stays2.data || [];
+
+  const sp = document.getElementById('sp');
+  sp.style.display = 'block';
+  sp.innerHTML = `<div class="panel-wrap" onclick="if(event.target.classList.contains('panel-wrap'))document.getElementById('sp').style.display='none'">
+    <div class="panel" onclick="event.stopPropagation()" style="width:520px">
+      <button class="pc" onclick="document.getElementById('sp').style.display='none'">✕</button>
+      <div class="pn">Merge guests</div>
+      <div class="ps">Choose which record to keep as the primary. All stays from the other record will be moved across, then the duplicate is deleted.</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
+        <div style="padding:14px;border:2px solid var(--line-peach);border-radius:12px;cursor:pointer" id="pick-1" onclick="selectMergePrimary(1)">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);margin-bottom:8px">Option A</div>
+          <div style="font-weight:700;font-size:14px">${escapeHtml(g1.full_name||'')}</div>
+          <div style="font-size:12px;color:var(--gray-text);margin-top:4px">${escapeHtml(g1.email||'no email')}</div>
+          <div style="font-size:12px;color:var(--gray-text)">${escapeHtml(g1.nationality||'')} · ${escapeHtml(g1.passport_number||g1.national_id||'no ID')}</div>
+          <div style="font-size:12px;color:var(--gray-text)">${s1.length} stay(s)</div>
+          <div style="margin-top:8px;font-size:11px;color:var(--kaani-orange);font-weight:600">Click to keep this one</div>
+        </div>
+        <div style="padding:14px;border:2px solid var(--line-peach);border-radius:12px;cursor:pointer" id="pick-2" onclick="selectMergePrimary(2)">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);margin-bottom:8px">Option B</div>
+          <div style="font-weight:700;font-size:14px">${escapeHtml(g2.full_name||'')}</div>
+          <div style="font-size:12px;color:var(--gray-text);margin-top:4px">${escapeHtml(g2.email||'no email')}</div>
+          <div style="font-size:12px;color:var(--gray-text)">${escapeHtml(g2.nationality||'')} · ${escapeHtml(g2.passport_number||g2.national_id||'no ID')}</div>
+          <div style="font-size:12px;color:var(--gray-text)">${s2.length} stay(s)</div>
+          <div style="margin-top:8px;font-size:11px;color:var(--kaani-orange);font-weight:600">Click to keep this one</div>
+        </div>
+      </div>
+
+      <div id="merge-confirm" style="display:none;padding:14px;background:var(--kaani-cream-deep);border-radius:10px;border:1px solid var(--kaani-peach);margin-bottom:14px;font-size:13px"></div>
+
+      <button class="btn btnp" id="merge-btn" style="width:100%;display:none" onclick="executeMerge('${id1}','${id2}')">Confirm merge</button>
+      <div style="font-size:12px;color:var(--gray-text);margin-top:8px;text-align:center">This cannot be undone. Back up your data first if unsure.</div>
+    </div>
+  </div>`;
+
+  window._mergeData = {id1, name1, id2, name2, g1, g2, primaryId: null};
+}
+
+function selectMergePrimary(which){
+  const d = window._mergeData;
+  if(!d) return;
+  d.primaryId = which === 1 ? d.id1 : d.id2;
+  d.deleteId = which === 1 ? d.id2 : d.id1;
+  d.primaryName = which === 1 ? d.name1 : d.name2;
+  d.deleteName = which === 1 ? d.name2 : d.name1;
+
+  document.getElementById('pick-1').style.borderColor = which===1 ? 'var(--kaani-orange)' : 'var(--line-peach)';
+  document.getElementById('pick-2').style.borderColor = which===2 ? 'var(--kaani-orange)' : 'var(--line-peach)';
+
+  const conf = document.getElementById('merge-confirm');
+  conf.style.display = 'block';
+  conf.innerHTML = `<strong>Keep:</strong> ${escapeHtml(d.primaryName)}<br><strong>Delete:</strong> ${escapeHtml(d.deleteName)} (all their stays will move to the kept record)`;
+
+  document.getElementById('merge-btn').style.display = 'block';
+}
+
+async function executeMerge(id1, id2){
+  const d = window._mergeData;
+  if(!d || !d.primaryId) return;
+  
+  const btn = document.getElementById('merge-btn');
+  btn.textContent = 'Merging...'; btn.disabled = true;
+
+  try {
+    // Move all stays from deleted guest to primary
+    await sb.from('stays').update({guest_id: d.primaryId}).eq('guest_id', d.deleteId);
+    // Move communications
+    await sb.from('communications').update({guest_id: d.primaryId}).eq('guest_id', d.deleteId);
+    // Move tags (ignore conflicts)
+    await sb.from('guest_tags').update({guest_id: d.primaryId}).eq('guest_id', d.deleteId).catch(()=>{});
+    // Delete the duplicate guest
+    await sb.from('guests').delete().eq('id', d.deleteId);
+    // Recalculate primary guest totals
+    const{data:stays}=await sb.from('stays').select('nights,total_revenue_usd').eq('guest_id',d.primaryId);
+    const totalNights = (stays||[]).reduce((a,s)=>a+(s.nights||0),0);
+    const totalRevenue = (stays||[]).reduce((a,s)=>a+(parseFloat(s.total_revenue_usd)||0),0);
+    const totalStays = (stays||[]).length;
+    await sb.from('guests').update({
+      total_stays: totalStays,
+      total_nights: totalNights,
+      total_revenue_usd: totalRevenue,
+      updated_at: new Date().toISOString()
+    }).eq('id', d.primaryId);
+
+    document.getElementById('sp').style.display='none';
+    toast('Guests merged successfully');
+    await loadInitialData();
+    renderAdminPane();
+  } catch(err) {
+    btn.textContent = 'Confirm merge'; btn.disabled = false;
+    toast('Merge failed: '+err.message, true);
+  }
+}
+
+async function renderAdminPane(){
+  const pane = document.getElementById('pane-admin');
+  if(!pane) return;
+  if(!STATE.profile || STATE.profile.role !== 'admin'){
+    pane.innerHTML='<div class="empty">Admin access required</div>';
+    return;
+  }
+  pane.innerHTML='<div class="loading">Loading admin panel</div>';
+
+  try {
+    const[usersRes, dupsRes] = await Promise.all([
+      sb.from('user_profiles').select('*').order('created_at'),
+      sb.from('v_potential_duplicates').select('*').limit(50).then(r=>r.error?{data:[]}:r)
+    ]);
+
+    if(usersRes.error){
+      pane.innerHTML='<div class="empty">Error loading users: '+escapeHtml(usersRes.error.message)+'</div>';
+      return;
+    }
+
+    const users = usersRes.data || [];
+    const dups = dupsRes.data || [];
+
+    pane.innerHTML=`
+      <div class="card">
+        <div class="ch"><div class="ct">Team members</div></div>
+        <div class="cd" style="margin-bottom:12px">Add team members via Supabase → Authentication → Users → Add user (tick Auto Confirm). Assign roles and property access below.</div>
+        ${users.map(u=>`<div class="row">
+          <div style="flex:1;min-width:0">
+            <div class="rn">${escapeHtml(u.full_name||u.user_id)}</div>
+            <div style="font-size:11px;color:var(--gray-text)">${u.role}${u.user_id===STATE.user.id?' · (you)':''}</div>
+          </div>
+          <select onchange="updateUserRole('${u.user_id}',this.value)" ${u.user_id===STATE.user.id?'disabled':''} style="font-size:12px;padding:7px 10px;border-radius:8px;border:1px solid var(--line-peach);font-family:inherit;background:#fff;margin-right:8px">
+            <option value="staff" ${u.role==='staff'?'selected':''}>Staff</option>
+            <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
+            <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+          </select>
+          <button class="btn" style="font-size:11px;padding:6px 12px" onclick="manageProperties('${u.user_id}','${escapeHtml(u.full_name||'')}')">Properties</button>
+        </div>`).join('')}
+      </div>
+
+      <div class="card">
+        <div class="ch">
+          <div class="ct">Potential duplicates (${dups.length})</div>
+          <div class="cs">Review each pair — merge or dismiss</div>
+        </div>
+        ${dups.length === 0
+          ? '<div class="empty">No duplicates detected — your data is clean ✓</div>'
+          : dups.map(d=>`<div style="padding:14px 0;border-bottom:1px solid var(--line-peach)">
+              <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:160px">
+                  <div style="font-size:13px;font-weight:600">${escapeHtml(d.name_1)}</div>
+                  <div style="font-size:11px;color:var(--gray-text);margin-top:2px">${escapeHtml(d.email_1||'no email')}</div>
+                </div>
+                <div style="font-size:11px;color:var(--kaani-orange);font-weight:700;padding-top:2px;white-space:nowrap">↔ ${escapeHtml(d.match_reason?.replace('_',' ')||'')}</div>
+                <div style="flex:1;min-width:160px;text-align:right">
+                  <div style="font-size:13px;font-weight:600">${escapeHtml(d.name_2)}</div>
+                  <div style="font-size:11px;color:var(--gray-text);margin-top:2px">${escapeHtml(d.email_2||'no email')}</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">
+                <button class="btn btnp" style="font-size:11px;padding:6px 12px" onclick="openMergePanel('${d.guest_1_id}','${escapeHtml(d.name_1)}','${d.guest_2_id}','${escapeHtml(d.name_2)}')">⚡ Merge</button>
+                <button class="btn" style="font-size:11px;padding:6px 12px" onclick="dismissDuplicate('${d.guest_1_id}','${d.guest_2_id}',this)">✕ Not a duplicate</button>
+              </div>
+            </div>`).join('')
+        }
+      </div>
+
+      <div class="card">
+        <div class="ct" style="margin-bottom:12px">Quick backup</div>
+        <div class="btns">
+          <button class="btn" onclick="downloadGuestReport()">Download all guests (CSV)</button>
+          <button class="btn" onclick="downloadStaysReport()">Download all stays (CSV)</button>
+        </div>
+      </div>`;
+  } catch(err) {
+    console.error('Admin render error:', err);
+    pane.innerHTML='<div class="empty">Admin error: '+escapeHtml(err.message||'Unknown error')+'</div>';
+  }
+}
+
 
 async function updateUserRole(userId,role){
   const{error}=await sb.from('user_profiles').update({role}).eq('user_id',userId);
