@@ -776,6 +776,61 @@ async function loadGuestsFallback(q, fst, fnat, fsrc, fbday, from){
 }
 
 
+
+function renderGuestList(totalCount){
+  const el=document.getElementById('glist');
+  if(!STATE.currentGuests.length){el.innerHTML='<div class="empty">No guests match your filters</div>';document.getElementById('g-pagination').innerHTML='';return;}
+  el.innerHTML=STATE.currentGuests.map(g=>{
+    const age=calcAge(g.date_of_birth);
+    const today=new Date();today.setHours(0,0,0,0);
+    let bdayBadge='';
+    if(g.date_of_birth){
+      const dob=new Date(g.date_of_birth);
+      let bday=new Date(today.getFullYear(),dob.getMonth(),dob.getDate());
+      if(bday<today)bday=new Date(today.getFullYear()+1,dob.getMonth(),dob.getDate());
+      const days=Math.round((bday-today)/86400000);
+      if(days<=30)bdayBadge=` <span style="color:var(--kaani-orange);font-weight:600">🎂 in ${days}d</span>`;
+    }
+    const stCls=g.lead_status==='vip'?'bu':g.lead_status==='repeat'?'be':g.lead_status==='lapsed'?'bg':'bm';
+    return`<div class="gcard" onclick="openGuestPanel('${g.id}')">
+      <div style="display:flex;align-items:center;gap:11px">
+        <div class="av">${ini(g.full_name)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.full_name)}</div>
+          <div style="font-size:12px;color:var(--gray-text)">${g.date_of_birth?'DOB: '+fmtDate(g.date_of_birth)+(age?' · age '+age:'')+''+bdayBadge:escapeHtml(g.email||'no email')}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <span class="badge ${stCls}">${(g.lead_status||'').replace('_',' ')}</span>
+          <span style="font-size:11px;color:var(--gray-text)">${g.total_stays} ${g.total_stays===1?'stay':'stays'}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:9px;padding-top:9px;border-top:1px solid var(--line-peach);flex-wrap:wrap;font-size:12px">
+        <span style="color:var(--gray-text)"><strong style="color:var(--black)">${escapeHtml(g.nationality||'—')}</strong></span>
+        <span style="color:var(--gray-text)">Last stay <strong style="color:var(--black)">${g.last_stay_date?fmtDate(g.last_stay_date):'—'}</strong></span>
+        ${g.guest_type==='local'?'<span class="badge bl">Local</span>':''}
+      </div>
+    </div>`;
+  }).join('');
+  renderPagination(totalCount);
+}
+
+function renderPagination(total){
+  const pgEl=document.getElementById('g-pagination');
+  if(!pgEl)return;
+  const totalPages=Math.ceil(total/STATE.guestsPerPage);
+  if(totalPages<=1){pgEl.innerHTML='';return;}
+  const p=STATE.guestsPage;
+  let html=`<button onclick="changeGuestPage(${p-1})" ${p===0?'disabled':''}>‹ Prev</button>`;
+  const start=Math.max(0,p-2);const end=Math.min(totalPages-1,p+2);
+  for(let i=start;i<=end;i++)html+=`<button class="${i===p?'on':''}" onclick="changeGuestPage(${i})">${i+1}</button>`;
+  html+=`<button onclick="changeGuestPage(${p+1})" ${p>=totalPages-1?'disabled':''}>Next ›</button>`;
+  html+=`<span style="font-size:11px;color:var(--gray-text);align-self:center;margin-left:8px">Page ${p+1} of ${totalPages} · ${total.toLocaleString()} guests</span>`;
+  pgEl.innerHTML=html;
+}
+
+function changeGuestPage(p){STATE.guestsPage=p;loadGuests();}
+
+
 async function openGuestPanel(id){
   const{data:g}=await sb.from('guests').select('*').eq('id',id).single();
   if(!g)return;
