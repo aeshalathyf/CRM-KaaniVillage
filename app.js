@@ -698,103 +698,83 @@ let guestSearchTimer;
 async function loadGuests(){
   clearTimeout(guestSearchTimer);
   guestSearchTimer=setTimeout(async()=>{
-    const q=document.getElementById('gsearch')?.value.trim()||'';
-    const fst=document.getElementById('gfst')?.value||'';
-    const fnat=document.getElementById('gfnat')?.value||'';
-    const fsrc=document.getElementById('gfsrc')?.value||'';
-    const fbday=document.getElementById('gfbday')?.value||'';
-    const from=STATE.guestsPage*STATE.guestsPerPage;
-    const to=from+STATE.guestsPerPage-1;
+    const q     = document.getElementById('gsearch')?.value.trim()||'';
+    const fst   = document.getElementById('gfst')?.value||'';
+    const fnat  = document.getElementById('gfnat')?.value||'';
+    const fsrc  = document.getElementById('gfsrc')?.value||'';
+    const fbday = document.getElementById('gfbday')?.value||'';
 
-    let query=sb.from('guests').select('*',{count:'exact'}).order('last_stay_date',{ascending:false,nullsFirst:false}).range(from,to);
-
-    // Property filter — always apply based on accessible properties
     const propIds = STATE.selectedPropertyId !== null
       ? [STATE.selectedPropertyId]
       : STATE.accessibleProperties.map(p=>p.id);
-    
-    // Get guest IDs who have stays at selected properties
-    const{data:propStays} = await sb.from('stays').select('guest_id').in('property_id', propIds);
-    const propGuestIds = [...new Set((propStays||[]).map(s=>s.guest_id))];
-    if(propGuestIds.length === 0){STATE.currentGuests=[];renderGuestList(0);return;}
-    query = query.in('id', propGuestIds);
 
-    // Text search
-    if(q){query=query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,nationality.ilike.%${q}%`);}
+    const from = STATE.guestsPage * STATE.guestsPerPage;
 
-    // Status filter
-    if(fst)query=query.eq('lead_status',fst);
+    // Use server-side RPC for property-filtered search (no URL length issues)
+    const{data, error} = await sb.rpc('search_guests', {
+      prop_ids: propIds,
+      search_text: q,
+      filter_status: fst,
+      filter_nat: fnat,
+      filter_source: fsrc,
+      page_from: from,
+      page_size: STATE.guestsPerPage
+    });
 
-    // Nationality filter
-    if(fnat)query=query.eq('nationality',fnat);
-
-    // Source filter — get guest IDs who have a stay with this source
-    if(fsrc){
-      const{data:srcStays}=await sb.from('stays').select('guest_id').eq('source',fsrc);
-      const srcIds=[...new Set((srcStays||[]).map(s=>s.guest_id))];
-      if(srcIds.length===0){STATE.currentGuests=[];renderGuestList(0);return;}
-      query=query.in('id',srcIds);
+    if(error){
+      // Fallback to direct query if RPC not available
+      console.warn('search_guests RPC not available, falling back:', error.message);
+      await loadGuestsFallback(q, fst, fnat, fsrc, fbday, from);
+      return;
     }
 
-    const{data,error,count}=await query;
-    if(error){toast('Load error: '+error.message,true);return;}
+    let guests = data || [];
+    const totalCount = guests.length > 0 ? Number(guests[0].total_count) : 0;
 
-    // Birthday filter — client side (needs date math)
-    let filtered=data||[];
-    if(fbday&&+fbday>0){
-      filtered=filtered.filter(g=>{
-        const d=bdayDays(g.date_of_birth);
-        return d!==null&&d>=0&&d<=+fbday;
+    // Birthday filter — client side
+    if(fbday && +fbday > 0){
+      const today = new Date(); today.setHours(0,0,0,0);
+      guests = guests.filter(g => {
+        if(!g.date_of_birth) return false;
+        const dob = new Date(g.date_of_birth);
+        let bday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+        if(bday < today) bday = new Date(today.getFullYear()+1, dob.getMonth(), dob.getDate());
+        const days = Math.round((bday-today)/86400000);
+        return days >= 0 && days <= +fbday;
       });
     }
 
-    STATE.currentGuests=filtered;
-    renderGuestList(fbday?filtered.length:(count||0));
-  },200);
+    STATE.currentGuests = guests;
+    renderGuestList(fbday ? guests.length : totalCount);
+  }, 200);
 }
 
-function renderGuestList(totalCount){
-  const el=document.getElementById('glist');
-  if(!STATE.currentGuests.length){el.innerHTML='<div class="empty">No guests match your filters</div>';return;}
-  el.innerHTML=STATE.currentGuests.map(g=>{
-    const[bg,fg]=avc(g.full_name);
-    const age=calcAge(g.date_of_birth);
-    return`<div class="gcard" onclick="openGuestPanel('${g.id}')">
-      <div style="display:flex;align-items:center;gap:11px">
-        <div class="av" style="background:${bg};color:${fg}">${ini(g.full_name)}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.full_name)}</div>
-          <div style="font-size:12px;color:var(--gray-text)">${g.date_of_birth?'DOB: '+fmtDate(g.date_of_birth)+(age?' · age '+age:'')+(bdayDays(g.date_of_birth)!==null&&bdayDays(g.date_of_birth)<=30?' <span style="color:var(--kaani-orange);font-weight:600">🎂 in '+bdayDays(g.date_of_birth)+'d</span>':''):escapeHtml(g.email||'no email')}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
-          <span class="badge ${g.lead_status==='vip'?'bu':g.lead_status==='repeat'?'be':g.lead_status==='lapsed'?'bg':'bm'}">${g.lead_status.replace('_',' ')}</span>
-          <span style="font-size:11px;color:#5F5E5A">${g.total_stays} ${g.total_stays===1?'stay':'stays'}</span>
-        </div>
-      </div>
-      <div style="display:flex;gap:10px;margin-top:9px;padding-top:9px;border-top:1px solid #E8E6E0;flex-wrap:wrap;font-size:12px">
-        <span style="color:#5F5E5A"><strong style="color:#2C2C2A">${escapeHtml(g.nationality||'—')}</strong></span>
-        <span style="color:#5F5E5A">Last stay <strong style="color:#2C2C2A">${g.last_stay_date?fmtDate(g.last_stay_date):'—'}</strong></span>
-        ${g.guest_type==='local'?'<span class="badge bl">Local</span>':''}
-      </div>
-    </div>`;
-  }).join('');
-  renderPagination(totalCount);
+async function loadGuestsFallback(q, fst, fnat, fsrc, fbday, from){
+  // Fallback for when search_guests RPC is not installed
+  const to = from + STATE.guestsPerPage - 1;
+  let query = sb.from('guests').select('*',{count:'exact'})
+    .order('last_stay_date',{ascending:false,nullsFirst:false})
+    .range(from, to);
+  if(q) query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,nationality.ilike.%${q}%`);
+  if(fst) query = query.eq('lead_status', fst);
+  if(fnat) query = query.eq('nationality', fnat);
+  const{data, error, count} = await query;
+  if(error){toast('Load error: '+error.message, true);return;}
+  let filtered = data||[];
+  if(fbday && +fbday>0){
+    const today=new Date();today.setHours(0,0,0,0);
+    filtered=filtered.filter(g=>{
+      if(!g.date_of_birth)return false;
+      const dob=new Date(g.date_of_birth);
+      let bday=new Date(today.getFullYear(),dob.getMonth(),dob.getDate());
+      if(bday<today)bday=new Date(today.getFullYear()+1,dob.getMonth(),dob.getDate());
+      return Math.round((bday-today)/86400000)<=+fbday;
+    });
+  }
+  STATE.currentGuests = filtered;
+  renderGuestList(fbday?filtered.length:(count||0));
 }
 
-function renderPagination(total){
-  const pgEl=document.getElementById('g-pagination');
-  if(!pgEl)return;
-  const totalPages=Math.ceil(total/STATE.guestsPerPage);
-  if(totalPages<=1){pgEl.innerHTML='';return;}
-  const p=STATE.guestsPage;
-  let html=`<button onclick="changeGuestPage(${p-1})" ${p===0?'disabled':''}>‹ Prev</button>`;
-  const start=Math.max(0,p-2);const end=Math.min(totalPages-1,p+2);
-  for(let i=start;i<=end;i++)html+=`<button class="${i===p?'on':''}" onclick="changeGuestPage(${i})">${i+1}</button>`;
-  html+=`<button onclick="changeGuestPage(${p+1})" ${p>=totalPages-1?'disabled':''}>Next ›</button>`;
-  html+=`<span style="font-size:11px;color:var(--gray-text);align-self:center;margin-left:8px">Page ${p+1} of ${totalPages} · ${total.toLocaleString()} guests</span>`;
-  pgEl.innerHTML=html;
-}
-function changeGuestPage(p){STATE.guestsPage=p;loadGuests();}
 
 async function openGuestPanel(id){
   const{data:g}=await sb.from('guests').select('*').eq('id',id).single();
