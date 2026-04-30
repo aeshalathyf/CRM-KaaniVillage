@@ -271,22 +271,24 @@ function renderPropertySelector(){
 
 async function selectProperty(propId){
   // Ensure consistent type — null for All Properties, integer for specific property
-  STATE.selectedPropertyId = propId === null ? null : parseInt(propId);
+  STATE.selectedPropertyId = (propId === null || propId === 'null' || propId === '') ? null : parseInt(propId);
   STATE.guestsPage=0;
   STATE.chartsRendered=false;
   renderPropertySelector();
 
   const activePane=document.querySelector('.pane.on');
-  if(!activePane)return;
+  if(!activePane){toast(STATE.selectedPropertyId?`${STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name}`:'All Properties');return;}
   const tabId=activePane.id.replace('pane-','');
   if(tabId==='overview')renderOverview();
-  if(tabId==='dashboard')renderDashboard();
-  if(tabId==='guests')renderGuestsPane();
-  if(tabId==='actions')renderActionsPane();
-  if(tabId==='marketing')renderMarketingPane();
-  if(tabId==='reports')renderReportsPane();
+  else if(tabId==='dashboard')renderDashboard();
+  else if(tabId==='guests'){STATE.guestsPage=0;renderGuestsPane();}
+  else if(tabId==='actions')renderActionsPane();
+  else if(tabId==='marketing')renderMarketingPane();
+  else if(tabId==='reports')renderReportsPane();
 
-  toast(propId?`Viewing: ${STATE.properties.find(p=>p.id===propId)?.name||''}`:'Viewing: All Properties');
+  toast(STATE.selectedPropertyId
+    ? `Viewing: ${STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||''}`
+    : 'Viewing: All Properties');
 }
 
 async function loadInitialData(){
@@ -304,6 +306,23 @@ async function loadInitialData(){
 }
 
 // ------------- TAB SWITCHING -------------
+
+// Returns array of property IDs to filter by — NEVER empty
+function getFilterPropertyIds(){
+  if(STATE.selectedPropertyId !== null){
+    return [parseInt(STATE.selectedPropertyId)];
+  }
+  const props = STATE.accessibleProperties && STATE.accessibleProperties.length > 0
+    ? STATE.accessibleProperties
+    : STATE.properties;
+  return props.map(p=>parseInt(p.id));
+}
+
+// Check if viewing all properties
+function isAllPropertiesMode(){
+  return STATE.selectedPropertyId === null;
+}
+
 function sw(tab,btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.nav .nb').forEach(b=>b.classList.remove('on'));
@@ -367,7 +386,7 @@ async function renderOverview(){
     sb.rpc('get_overview_stats', {prop_ids: propIds}),
     sb.rpc('get_inhouse_guests', {prop_ids: propIds}),
     sb.rpc('get_recent_checkouts', {prop_ids: propIds, days_back: 3}),
-    sb.rpc('get_upcoming_birthdays', {prop_ids: propIds, days_ahead: 30})
+    sb.rpc('get_upcoming_birthdays', {prop_ids: propIds, days_ahead: 30}).then(r=>r.error?{data:[]}:r)
   ]);
 
   const stats = statsRes.data || {};
@@ -939,13 +958,23 @@ function expandGuestList(btn){
   const id = btn.getAttribute('data-id');
   const guests = window['_gdata_'+id]||[];
   const parent = btn.parentElement;
-  let html = guests.map(g=>`<div class="row"><div style="flex:1;min-width:0;color:var(--gray-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(g.n||'')}</div><div style="font-size:12px;color:var(--black)">${escapeHtml(g.e||'')}</div></div>`).join('');
-  html += `<div style="font-size:12px;color:var(--kaani-orange);padding-top:8px;cursor:pointer;font-weight:500" onclick="this.parentElement.style.maxHeight='150px';this.parentElement.style.overflow='hidden'">▴ Collapse</div>`;
+  parent.style.maxHeight = 'none';
+  parent.style.overflow = 'visible';
+  let html = `<div style="max-height:300px;overflow-y:auto;border:1px solid var(--line-peach);border-radius:8px;padding:4px 0;margin-bottom:8px">`;
+  html += guests.map(g=>`<div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--line-peach);font-size:13px"><span style="color:var(--black-soft)">${escapeHtml(g.n||'')}</span><span style="color:var(--gray-text);font-size:12px">${escapeHtml(g.e||'')}</span></div>`).join('');
+  html += `</div><div style="font-size:12px;color:var(--kaani-orange);cursor:pointer;font-weight:500" onclick="this.parentElement.querySelector('div').remove();this.remove()">▴ Collapse</div>`;
   parent.innerHTML = html;
 }
 
   // Populate WA preview
-  setTimeout(()=>{const wp=document.getElementById('wa-preview-'+key);if(wp&&WA_TEMPLATES[key])wp.textContent=WA_TEMPLATES[key].replace(/{{property_name}}/g,tplPropName||'Kaani Hotels');},50);
+  // Populate WA preview after render
+  setTimeout(()=>{
+    const wp=document.getElementById('wa-preview-'+key);
+    if(wp){
+      const tpl=WA_TEMPLATES&&WA_TEMPLATES[key]?WA_TEMPLATES[key]:'WhatsApp template not found. Check WA_TEMPLATES object.';
+      wp.textContent=tpl.replace(/{{property_name}}/g,tplPropName||'Kaani Hotels').replace(/{{first_name}}/g,'[First Name]');
+    }
+  },100);
 
 async function logCampaignSend(key,count){
   const tpl=STATE.templates.find(t=>t.template_key===key);
@@ -977,16 +1006,26 @@ async function renderMarketingPane(){
   const directEmails= (d?.direct_emails||[]).filter(Boolean);
   const repeatEmails= (d?.repeat_emails||[]).filter(Boolean);
   const dobEmails   = (d?.dob_emails||[]).filter(Boolean);
+  // Store for clickable stat cards
+  window._mktData = {allEmails, directEmails, repeatEmails, dobEmails};
   const scopeLabel  = STATE.selectedPropertyId
     ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
     : 'All Properties';
 
   el.innerHTML=`
     <div class="sg" id="mkt-stats">
-      <div class="sm"><div class="sl">Total contactable</div><div class="sv">${(d?.total_count||0).toLocaleString()}</div><div class="ss">${escapeHtml(scopeLabel)}</div></div>
-      <div class="sm"><div class="sl">Direct bookers</div><div class="sv">${(d?.direct_count||0).toLocaleString()}</div><div class="ss">highest value</div></div>
-      <div class="sm"><div class="sl">Repeat & VIP</div><div class="sv">${(d?.repeat_count||0).toLocaleString()}</div><div class="ss">most loyal</div></div>
-      <div class="sm"><div class="sl">With DOB</div><div class="sv">${(d?.dob_count||0).toLocaleString()}</div><div class="ss">birthday targets</div></div>
+      <div class="sm" style="cursor:pointer" onclick="showMktDetail('All contactable emails', window._mktData?.allEmails||[])">
+        <div class="sl">Total contactable</div><div class="sv">${(d?.total_count||0).toLocaleString()}</div>
+        <div class="ss" style="color:var(--kaani-orange)">tap to view ↗</div></div>
+      <div class="sm" style="cursor:pointer" onclick="showMktDetail('Direct bookers', window._mktData?.directEmails||[])">
+        <div class="sl">Direct bookers</div><div class="sv">${(d?.direct_count||0).toLocaleString()}</div>
+        <div class="ss" style="color:var(--kaani-orange)">tap to view ↗</div></div>
+      <div class="sm" style="cursor:pointer" onclick="showMktDetail('Repeat & VIP guests', window._mktData?.repeatEmails||[])">
+        <div class="sl">Repeat & VIP</div><div class="sv">${(d?.repeat_count||0).toLocaleString()}</div>
+        <div class="ss" style="color:var(--kaani-orange)">tap to view ↗</div></div>
+      <div class="sm" style="cursor:pointer" onclick="showMktDetail('Guests with DOB', window._mktData?.dobEmails||[])">
+        <div class="sl">With DOB</div><div class="sv">${(d?.dob_count||0).toLocaleString()}</div>
+        <div class="ss" style="color:var(--kaani-orange)">tap to view ↗</div></div>
     </div>
     <div style="margin-bottom:12px">
       <button class="btn btnp" onclick='copyToClipboard(${JSON.stringify(allEmails.join(", "))},"All emails copied — ${allEmails.length} addresses")'>Copy all ${allEmails.length.toLocaleString()} emails</button>
@@ -1010,6 +1049,23 @@ async function renderMarketingPane(){
     </div>`).join('');
 }
 
+
+
+function showMktDetail(title, emails){
+  const sp=document.getElementById('sp');
+  sp.style.display='block';
+  sp.innerHTML=`<div class="panel-wrap" onclick="if(event.target.classList.contains('panel-wrap'))document.getElementById('sp').style.display='none'">
+    <div class="panel" onclick="event.stopPropagation()">
+      <button class="pc" onclick="document.getElementById('sp').style.display='none'">✕</button>
+      <div class="pn">${escapeHtml(title)}</div>
+      <div class="ps">${emails.length.toLocaleString()} guests</div>
+      <button class="btn btnp" style="margin-bottom:14px;width:100%" onclick='copyToClipboard(${JSON.stringify(emails.join(", "))},"${emails.length} emails copied")'>Copy all ${emails.length.toLocaleString()} emails</button>
+      <div style="max-height:65vh;overflow-y:auto">
+        ${emails.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line-peach);font-size:13px;color:var(--black)">${escapeHtml(e)}</div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
 
 async function renderTemplatesPane(){
   const el=document.getElementById('pane-templates');
@@ -1104,7 +1160,7 @@ function downloadCSV(filename,headers,rows){
 async function downloadGuestReport(){
   toast('Generating guest report...');
   const propIds=getFilterPropertyIds();
-  const isAll=propIds.length===STATE.properties.length;
+  const isAll=!STATE.selectedPropertyId;
   let q=sb.from('guests').select('*').order('last_stay_date',{ascending:false}).limit(50000);
   if(!isAll){
     const{data:propStays}=await sb.from('stays').select('guest_id').in('property_id',propIds);
@@ -1310,7 +1366,7 @@ async function startImport(){
 async function loadImportHistory(){
   const el = document.getElementById('imp-history');
   if(!el) return;
-  const{data} = await sb.from('campaigns').select('*').order('created_at',{ascending:false}).limit(30);
+  const{data} = await sb.from('campaigns').select('*').order('created_at',{ascending:false,nullsFirst:false}).limit(50);
   if(!data||data.length===0){
     el.innerHTML='<div class="empty">No imports yet</div>';
     return;
@@ -1470,8 +1526,10 @@ async function importCSV(text, propId){
 // ============================================================================
 async function renderAdminPane(){
   if(STATE.profile.role!=='admin'){document.getElementById('pane-admin').innerHTML='<div class="empty">Admin access required</div>';return;}
-  const{data:users}=await sb.from('user_profiles').select('*').order('created_at');
-  const{data:dups}=await sb.from('v_potential_duplicates').select('*').limit(50).catch(()=>({data:[]}));
+  const{data:users,error:usersErr}=await sb.from('user_profiles').select('*').order('created_at');
+  if(usersErr){document.getElementById('pane-admin').innerHTML='<div class="empty">Error loading admin: '+escapeHtml(usersErr.message)+'</div>';return;}
+  let dups=[];
+  try{const r=await sb.from('v_potential_duplicates').select('*').limit(30);dups=r.data||[];}catch(e){dups=[];}
 
   document.getElementById('pane-admin').innerHTML=`
     <div class="card">
