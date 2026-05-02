@@ -967,7 +967,8 @@ const WA_TEMPLATES = {
   winback: `Hi [Name]! 👋 We loved having you at {{property_name}} — hope Maafushi left you with beautiful memories! 🌴\n\nSpecial offer just for you — book direct and save 10%:\n\n📎 [DIRECT BOOKING LINK]\n⏰ Valid until: [DATE]\n\nReply to check availability 😊\nKaani Hotels`,
   upsell: `Hi [Name]! 🌺 Hope you're loving your stay!\n\nWe can arrange:\n🐠 Island hopping & snorkelling — $30/pp\n💆 Relaxation massage — $50/pp\n🍽️ Lunch + dinner upgrade — $25/pp/day\n🐬 Sunset dolphin cruise — $35/pp\n\nJust reply here or pop by reception! 😊\nKaani Hotels`,
   birthday: `Hi [Name]! 🎂🎉 Wishing you a very happy birthday from all of us at {{property_name}}! 🌺\n\nAs a birthday gift — complimentary room upgrade on your next direct booking. Just mention this message when you book 🎁\n\nHope your day is as beautiful as the Maldives! 🌊\nKaani Hotels`,
-  seasonal: `Hi [Name]! 🌴 Hope you have wonderful memories of your time with us in Maafushi!\n\nExclusive offer for past guests:\n✨ [OFFER DESCRIPTION]\n📅 Travel: [DATES]\n⏰ Book by: [DEADLINE]\n📎 [DIRECT BOOKING LINK]\n\nReply to check availability 😊\nKaani Hotels`
+  seasonal: `Hi [Name]! 🌴 Hope you have wonderful memories of your time with us in Maafushi!\n\nExclusive offer for past guests:\n✨ [OFFER DESCRIPTION]\n📅 Travel: [DATES]\n⏰ Book by: [DEADLINE]\n📎 [DIRECT BOOKING LINK]\n\nReply to check availability 😊\nKaani Hotels`,
+  locals: `Assalamu Alaikum [Name]! 🌺\n\nKaani Hotels geon special fareeh ingey — local guestunnah special rates!\n\n✨ [SPECIAL FARE DETAILS]\n📅 Travel: [DATES]\n\nDhivehi rayyithunnah special rate eh arrange kohdhevey. Book kohlan:\n📎 [DIRECT BOOKING LINK]\n\nReply kurey nuvatha call kurey: +960 [NUMBER]\nKaani Hotels Team`
 };
 
 async function renderActionsPane(){
@@ -986,6 +987,7 @@ async function renderActionsPane(){
       <button class="nb" onclick="renderAction('birthday',this)">Birthdays</button>
       <button class="nb" onclick="renderAction('seasonal',this)">Seasonal</button>
       <button class="nb" onclick="renderChecklist(this)">Checklist</button>
+      <button class="nb" onclick="renderAction('locals',this)">🇲🇻 Locals</button>
     </div>
     <div id="action-content"><div class="loading">Loading</div></div>`;
   renderAction('review_request');
@@ -1090,6 +1092,15 @@ async function renderAction(key,btn){
     if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
     if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
     segmentLabel=`All guests with marketing consent · ${tplPropName}`;
+  }else if(key==='locals'){
+    // Maldivian local guests only
+    const gIds=await getGuestIdsForProperty();
+    let q=sb.from('guests').select('id,full_name,email,phone,marketing_consent,nationality,guest_type')
+      .eq('guest_type','local')
+      .eq('marketing_consent',true);
+    if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
+    if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
+    segmentLabel=`Local Maldivian guests · ${tplPropName}`;
   }
 
   // Deduplicate
