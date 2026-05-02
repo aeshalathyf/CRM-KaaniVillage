@@ -1185,14 +1185,16 @@ async function renderAction(key,btn){
     if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
     segmentLabel=`All guests with marketing consent · ${tplPropName}`;
   }else if(key==='locals'){
-    // Maldivian local guests only
-    const gIds=await getGuestIdsForProperty();
-    let q=sb.from('guests').select('id,full_name,email,phone,marketing_consent,nationality,guest_type')
-      .eq('guest_type','local')
-      .eq('marketing_consent',true);
-    if(gIds){if(gIds.length===0){guests=[];}else{q=q.in('id',gIds);}}
-    if(!gIds||gIds.length>0){const{data}=await q;guests=(data||[]);}
-    segmentLabel=`Local Maldivian guests · ${tplPropName}`;
+    // Maldivian local guests — filter via stays for property accuracy
+    const{data:localStays}=await sb.from('stays')
+      .select('guests!inner(id,full_name,email,marketing_consent,guest_type,nationality)')
+      .in('property_id', propIds)
+      .not('guests.email','is',null);
+    const seen=new Set();
+    guests=(localStays||[])
+      .map(s=>s.guests)
+      .filter(g=>g&&g.guest_type==='local'&&g.marketing_consent&&g.email&&!seen.has(g.id)&&seen.add(g.id));
+    segmentLabel=`Local Maldivian guests with email · ${tplPropName}`;
   }
 
   // Deduplicate
@@ -1329,13 +1331,16 @@ async function renderMarketingPane(){
     </div>
     <div id="mkt-groups"></div>`;
 
-  // Fetch local guest emails separately
-  const{data:localData} = await sb.from('stays').select('guests!inner(email,guest_type,marketing_consent)')
-    .in('property_id', propIds).not('guests.email','is',null);
-  const localEmails = [...new Set((localData||[])
+  // Fetch local guest emails — deduplicated by email
+  const{data:localData} = await sb.from('stays')
+    .select('guests!inner(id,email,guest_type,marketing_consent)')
+    .in('property_id', propIds)
+    .not('guests.email','is',null);
+  const localSeen=new Set();
+  const localEmails = (localData||[])
     .map(s=>s.guests)
-    .filter(g=>g&&g.guest_type==='local'&&g.marketing_consent&&g.email)
-    .map(g=>g.email))];
+    .filter(g=>g&&g.guest_type==='local'&&g.marketing_consent&&g.email&&!localSeen.has(g.id)&&localSeen.add(g.id))
+    .map(g=>g.email);
 
   const groups=[
     {label:'All guests with email',detail:`${allEmails.length.toLocaleString()} contacts (consented)`,emails:allEmails},
