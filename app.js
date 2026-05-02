@@ -393,52 +393,33 @@ async function renderOverview(){
     sb.rpc('get_overview_stats', {prop_ids: propIds}),
     sb.rpc('get_inhouse_guests', {prop_ids: propIds}),
     sb.rpc('get_recent_checkouts', {prop_ids: propIds, days_back: 3}),
-    // Fetch DOB guests directly — more reliable than RPC date math
-    sb.from('stays').select('guest_id').in('property_id', propIds).then(async r => {
-        if(r.error || !r.data) return {data:[]};
-        const gIds = [...new Set(r.data.map(s=>s.guest_id))];
-        if(!gIds.length) return {data:[]};
-        // Fetch in chunks of 500
-        let all = [];
-        for(let i=0;i<gIds.length;i+=500){
-          const chunk = gIds.slice(i,i+500);
-          const res = await sb.from('guests').select('id,full_name,email,date_of_birth,marketing_consent')
-            .in('id',chunk).not('date_of_birth','is',null).not('email','is',null).eq('marketing_consent',true);
-          if(res.data) all = all.concat(res.data);
-        }
-        return {data: all};
-      })
+    // Fetch guests with DOB for birthday calculation
+    sb.from('stays').select('guests!inner(id,full_name,email,date_of_birth)')
+      .in('property_id', propIds)
+      .not('guests.date_of_birth', 'is', null)
+      .not('guests.email', 'is', null)
+      .then(r => r.error ? {data:[]} : r)
   ]);
 
   const stats = statsRes.data || {};
   const inhouse = inhouseRes.data || [];
   const checkouts = checkoutsRes.data || [];
 
-  // Calculate birthday days in JS — no RPC date math needed
-  // Use RPC result if available, otherwise calculate in JS as fallback
-  let birthdays = [];
-  if(bdayGuestsRes.data && !bdayGuestsRes._fallback){
-    birthdays = (bdayGuestsRes.data || []).sort((a,b)=>(a.days_until||0)-(b.days_until||0));
-  } else {
-    // JS fallback — fetch all property guests with DOB and calculate
-    const{data:fallbackGuests} = await sb.from('stays')
-      .select('guests!inner(id,full_name,email,date_of_birth,marketing_consent)')
-      .in('property_id', propIds)
-      .not('guests.date_of_birth','is',null)
-      .not('guests.email','is',null);
-    const today = new Date(); today.setHours(0,0,0,0);
-    const seen = new Set();
-    birthdays = (fallbackGuests||[])
-      .map(s=>s.guests).filter(g=>g&&!seen.has(g.id)&&seen.add(g.id))
-      .map(g=>{
-        const dob=new Date(g.date_of_birth);
-        let bday=new Date(today.getFullYear(),dob.getMonth(),dob.getDate());
-        if(bday<today)bday=new Date(today.getFullYear()+1,dob.getMonth(),dob.getDate());
-        return{...g,days_until:Math.round((bday-today)/86400000)};
-      })
-      .filter(g=>g.days_until>=0&&g.days_until<=30)
-      .sort((a,b)=>a.days_until-b.days_until);
-  }
+  // Calculate days_until birthday in JS from raw guest data
+  const _today = new Date(); _today.setHours(0,0,0,0);
+  const _seen = new Set();
+  const birthdays = (bdayGuestsRes.data||[])
+    .map(s => s.guests || s)  // handle nested join or flat result
+    .filter(g => g && g.id && g.date_of_birth && !_seen.has(g.id) && _seen.add(g.id))
+    .map(g => {
+      const dob = new Date(g.date_of_birth);
+      let bday = new Date(_today.getFullYear(), dob.getMonth(), dob.getDate());
+      if(bday < _today) bday = new Date(_today.getFullYear()+1, dob.getMonth(), dob.getDate());
+      const days = Math.round((bday - _today) / 86400000);
+      return {...g, days_until: days};
+    })
+    .filter(g => typeof g.days_until === 'number' && g.days_until >= 0 && g.days_until <= 30)
+    .sort((a,b) => a.days_until - b.days_until);
   const scopeLabel = STATE.selectedPropertyId
     ? (STATE.properties.find(p=>p.id===STATE.selectedPropertyId)?.name||'Property')
     : 'All Properties';
@@ -575,7 +556,30 @@ async function renderDashboard(){
 
   new Chart(document.getElementById('srcChart'),{type:'doughnut',data:{labels:srcData.map(r=>srcShort(r.source)),datasets:[{data:srcData.map(r=>r.stay_count),backgroundColor:['#F47923','#2C7AB5','#1D9E75','#BA7517','#A32D2D','#6E5BB8','#EF9F27','#9FE1CB'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}}}}});
 
-  new Chart(document.getElementById('natChart'),{type:'bar',data:{labels:natData.map(r=>r.nationality),datasets:[{data:natData.map(r=>r.guest_count),backgroundColor:'#F47923',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{font:{size:11}}},y:{ticks:{font:{size:10}}}}}});
+  const natColors=['#F47923','#2C7AB5','#1D9E75','#BA7517','#A32D2D','#6E5BB8','#EF9F27','#5DCAA5','#E8637A','#4A90D9','#8BC34A','#FF7043','#26C6DA','#AB47BC','#EC407A'];
+  const natChartHeight = Math.max(240, natData.length * 28);
+  document.getElementById('natChart').parentElement.style.height = natChartHeight+'px';
+  new Chart(document.getElementById('natChart'),{
+    type:'bar',
+    data:{
+      labels:natData.map(r=>r.nationality),
+      datasets:[{
+        data:natData.map(r=>r.guest_count),
+        backgroundColor:natData.map((_,i)=>natColors[i%natColors.length]),
+        borderRadius:4
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+ctx.raw.toLocaleString()+' guests'}}},
+      scales:{
+        x:{beginAtZero:true,ticks:{font:{size:11}}},
+        y:{ticks:{font:{size:11},autoSkip:false}}
+      }
+    }
+  });
 
   new Chart(document.getElementById('nightsChart'),{type:'bar',data:{labels:nightsData.map(r=>r.nights+'n'),datasets:[{data:nightsData.map(r=>r.stay_count),backgroundColor:'#FBD7BC',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}}});
 
@@ -660,6 +664,37 @@ function generateInsights(stats, quality, sources, nats, types, nightsDist){
 }
 
 
+
+function filterNoEmail(){
+  // Show guests with no email — use fallback direct query
+  document.getElementById('glist').innerHTML='<div class="loading">Loading guests without email</div>';
+  document.getElementById('g-pagination').innerHTML='';
+  const propIds = STATE.selectedPropertyId !== null
+    ? [STATE.selectedPropertyId]
+    : STATE.accessibleProperties.map(p=>p.id);
+  
+  // Get all guest IDs for this property
+  sb.from('stays').select('guest_id').in('property_id', propIds)
+    .then(async r => {
+      const gIds = [...new Set((r.data||[]).map(s=>s.guest_id))];
+      // Fetch guests with no email in chunks
+      let all = [];
+      for(let i=0;i<gIds.length;i+=500){
+        const chunk = gIds.slice(i,i+500);
+        const{data} = await sb.from('guests').select('*').in('id',chunk).is('email',null);
+        if(data) all = all.concat(data);
+      }
+      STATE.currentGuests = all;
+      const summary = document.getElementById('g-filter-summary');
+      if(summary){
+        summary.innerHTML=`<div style="font-size:13px;color:var(--kaani-orange);font-weight:600;padding:8px 0">${all.length.toLocaleString()} guests have no email — click a guest to add their email manually</div>`;
+        summary.style.display='block';
+      }
+      renderGuestList(all.length);
+    });
+}
+
+
 async function renderGuestsPane(){
   const el=document.getElementById('pane-guests');
   el.innerHTML=`
@@ -671,6 +706,7 @@ async function renderGuestsPane(){
       <select id="gfnat"><option value="">All nationalities</option></select>
       <select id="gfbday"><option value="">All guests</option><option value="7">Birthday in 7 days</option><option value="30">Birthday in 30 days</option><option value="60">Birthday in 60 days</option></select>
     </div>
+    <div id="g-filter-summary" style="display:none"></div>
     <div id="glist"></div>
     <div class="pagination" id="g-pagination"></div>`;
 
@@ -801,6 +837,22 @@ async function loadGuestsFallback(q, fst, fnat, fsrc, fbday, from){
 
 function renderGuestList(totalCount){
   const el=document.getElementById('glist');
+  // Show active filter summary
+  const filterSummary = document.getElementById('g-filter-summary');
+  if(filterSummary){
+    const fst=document.getElementById('gfst')?.value;
+    const fnat=document.getElementById('gfnat')?.value;
+    const fsrc=document.getElementById('gfsrc')?.value;
+    const fbday=document.getElementById('gfbday')?.value;
+    const q=document.getElementById('gsearch')?.value?.trim();
+    const active = [fst,fnat,fsrc,fbday,q].filter(Boolean);
+    if(active.length > 0){
+      filterSummary.innerHTML=`<div style="font-size:13px;color:var(--kaani-orange);font-weight:600;padding:8px 0">${totalCount.toLocaleString()} guests match your filters</div>`;
+      filterSummary.style.display='block';
+    } else {
+      filterSummary.style.display='none';
+    }
+  }
   if(!STATE.currentGuests.length){el.innerHTML='<div class="empty">No guests match your filters</div>';document.getElementById('g-pagination').innerHTML='';return;}
   el.innerHTML=STATE.currentGuests.map(g=>{
     const age=calcAge(g.date_of_birth);
@@ -853,6 +905,19 @@ function renderPagination(total){
 function changeGuestPage(p){STATE.guestsPage=p;loadGuests();}
 
 
+
+async function editGuestEmail(guestId, currentEmail){
+  const newEmail = prompt('Enter email address:', currentEmail||'');
+  if(newEmail === null) return; // cancelled
+  const cleaned = newEmail.trim().toLowerCase();
+  if(cleaned && !cleaned.includes('@')){toast('Please enter a valid email address',true);return;}
+  const{error}=await sb.from('guests').update({email:cleaned||null}).eq('id',guestId);
+  if(error){toast(error.message,true);return;}
+  toast(cleaned?'Email updated':'Email removed');
+  openGuestPanel(guestId);
+}
+
+
 async function openGuestPanel(id){
   const{data:g}=await sb.from('guests').select('*').eq('id',id).single();
   if(!g)return;
@@ -889,7 +954,14 @@ async function openGuestPanel(id){
         ${g.date_of_birth?`<div class="dr"><span class="dk">Date of birth</span><span class="dv dob">${fmtDate(g.date_of_birth)}</span></div>`:''}
         ${age?`<div class="dr"><span class="dk">Age</span><span class="dv">${age} years</span></div>`:''}
         <div class="dr"><span class="dk">Nationality</span><span class="dv">${escapeHtml(g.nationality||'—')}</span></div>
-        <div class="dr"><span class="dk">Email</span><span class="dv">${escapeHtml(g.email||'—')}</span></div>
+        <div class="dr"><span class="dk">Email</span>
+          <span class="dv" style="display:flex;align-items:center;gap:8px">
+            ${g.email
+              ? escapeHtml(g.email)
+              : `<span style="color:var(--kaani-orange);font-style:italic">No email</span>`}
+            <button style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid var(--line-peach);background:var(--kaani-cream-deep);cursor:pointer;flex-shrink:0" onclick="editGuestEmail('${g.id}','${escapeHtml(g.email||'')}')">✏️ Edit</button>
+          </span>
+        </div>
         <div class="dr"><span class="dk">Phone</span><span class="dv">${escapeHtml(g.phone||'—')}</span></div>
         <div class="dr"><span class="dk">Passport</span><span class="dv">${escapeHtml(g.passport_number||'—')}</span></div>
         <div class="dr"><span class="dk">National ID</span><span class="dv">${escapeHtml(g.national_id||'—')}</span></div>
@@ -970,6 +1042,26 @@ const WA_TEMPLATES = {
   seasonal: `Hi [Name]! 🌴 Hope you have wonderful memories of your time with us in Maafushi!\n\nExclusive offer for past guests:\n✨ [OFFER DESCRIPTION]\n📅 Travel: [DATES]\n⏰ Book by: [DEADLINE]\n📎 [DIRECT BOOKING LINK]\n\nReply to check availability 😊\nKaani Hotels`,
   locals: `Assalamu Alaikum [Name]! 🌺\n\nKaani Hotels geon special fareeh ingey — local guestunnah special rates!\n\n✨ [SPECIAL FARE DETAILS]\n📅 Travel: [DATES]\n\nDhivehi rayyithunnah special rate eh arrange kohdhevey. Book kohlan:\n📎 [DIRECT BOOKING LINK]\n\nReply kurey nuvatha call kurey: +960 [NUMBER]\nKaani Hotels Team`
 };
+
+
+const CAMPAIGN_CODES = {
+  review_request: 'RR',
+  winback: 'WB',
+  upsell: 'UP',
+  birthday: 'BD',
+  seasonal: 'SB',
+  locals: 'LC'
+};
+
+function generateCampaignCode(key, propId){
+  const prop = STATE.properties.find(p=>p.id===propId||p.id===parseInt(propId));
+  const propCode = prop?.code || 'KNI';
+  const typeCode = CAMPAIGN_CODES[key] || 'CM';
+  const now = new Date();
+  const dateCode = String(now.getDate()).padStart(2,'0') + String(now.getMonth()+1).padStart(2,'0');
+  return `${propCode}-${typeCode}-${dateCode}`;
+}
+
 
 async function renderActionsPane(){
   const el=document.getElementById('pane-actions');
@@ -1137,6 +1229,12 @@ async function renderAction(key,btn){
         <button class="btn" onclick='copyToClipboard(${JSON.stringify(guestEmails.join(", "))},"${guestEmails.length} emails copied")'>Copy ${guestEmails.length} emails</button>
         <button class="btn" onclick="logCampaignSend('${key}',${guests.length})">Log as sent</button>
       </div>
+      <div style="margin-top:10px;padding:10px 14px;background:var(--kaani-cream-deep);border-radius:8px;border:1px solid var(--line-peach)">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-text);font-weight:600;margin-bottom:4px">Campaign code</div>
+        <div style="font-size:18px;font-weight:700;color:var(--kaani-orange);letter-spacing:.05em" id="campaign-code-${key}">${generateCampaignCode(key, STATE.selectedPropertyId||1)}</div>
+        <div style="font-size:11px;color:var(--gray-text);margin-top:4px">Include this code in your email/WhatsApp. Ask guests to quote it when booking.</div>
+        <button class="btn" style="margin-top:8px;font-size:11px;padding:5px 12px" onclick="copyToClipboard('${generateCampaignCode(key, STATE.selectedPropertyId||1)}','Campaign code copied')">Copy code</button>
+      </div>
       <div style="margin-top:10px;font-size:12px;color:var(--gray-text)">Use <strong>{{first_name}}</strong> and <strong>{{property_name}}</strong> — replace before sending.</div>
       <div style="margin-top:12px;padding:14px;background:var(--kaani-cream-deep);border-radius:10px;border:1px solid var(--line-peach)">
         <div class="sec" style="margin-bottom:8px">WhatsApp message preview</div>
@@ -1231,20 +1329,29 @@ async function renderMarketingPane(){
     </div>
     <div id="mkt-groups"></div>`;
 
+  // Fetch local guest emails separately
+  const{data:localData} = await sb.from('stays').select('guests!inner(email,guest_type,marketing_consent)')
+    .in('property_id', propIds).not('guests.email','is',null);
+  const localEmails = [...new Set((localData||[])
+    .map(s=>s.guests)
+    .filter(g=>g&&g.guest_type==='local'&&g.marketing_consent&&g.email)
+    .map(g=>g.email))];
+
   const groups=[
     {label:'All guests with email',detail:`${allEmails.length.toLocaleString()} contacts (consented)`,emails:allEmails},
     {label:'Direct bookings',detail:`${directEmails.length.toLocaleString()} contacts — best for loyalty offers`,emails:directEmails},
     {label:'Repeat & VIP guests',detail:`${repeatEmails.length.toLocaleString()} contacts — your most valuable`,emails:repeatEmails},
     {label:'Guests with DOB on file',detail:`${dobEmails.length.toLocaleString()} contacts — birthday campaign targets`,emails:dobEmails},
+    {label:'🇲🇻 Local Maldivian guests',detail:`${localEmails.length.toLocaleString()} contacts — special fares & local offers`,emails:localEmails,highlight:true},
   ];
 
   document.getElementById('mkt-groups').innerHTML=groups.map(g=>`
-    <div class="card" style="padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div class="card" style="padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;${g.highlight?'border-color:var(--kaani-orange);background:var(--kaani-cream-deep)':''}">
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:600">${escapeHtml(g.label)}</div>
+        <div style="font-size:13px;font-weight:600;${g.highlight?'color:var(--kaani-orange)':''}">${escapeHtml(g.label)}</div>
         <div style="font-size:11px;color:var(--gray-text);margin-top:3px">${escapeHtml(g.detail)}</div>
       </div>
-      <button class="btn" onclick='copyToClipboard(${JSON.stringify(g.emails.join(", "))},"Emails copied")'>Copy emails</button>
+      <button class="btn${g.highlight?' btnp':''}" onclick='copyToClipboard(${JSON.stringify(g.emails.join(", "))},"${g.emails.length} emails copied")'>Copy ${g.emails.length.toLocaleString()} emails</button>
     </div>`).join('');
 }
 
@@ -1541,15 +1648,20 @@ async function startImport(){
   progLabel.textContent = 'Complete!';
 
   // Log the import
-  await sb.from('campaigns').insert({
-    name: `Ezee import · ${propName} · ${new Date().toLocaleDateString()}`,
+  const importLog = {
+    name: `Ezee import · ${propName} · ${new Date().toLocaleDateString('en-GB')}`,
     campaign_type: 'custom',
-    notes: `Imported ${files.length} file(s). Added: ${totalAdded}, Updated: ${totalUpdated}, Errors: ${totalErrors}`,
+    notes: `Files: ${files.length} · New guests: ${totalAdded} · Updated: ${totalUpdated} · Errors: ${totalErrors}`,
     status: 'sent',
     sent_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
     emails_sent: totalAdded + totalUpdated,
+    target_count: totalAdded + totalUpdated,
     created_by: STATE.user.id
-  }).catch(()=>{});
+  };
+  const{error:logErr} = await sb.from('campaigns').insert(importLog);
+  if(logErr) console.error('Import log error:', logErr.message);
+  else console.log('Import logged successfully');
 
   const result = document.getElementById('imp-result');
   result.innerHTML=`<div style="padding:12px 14px;background:var(--success-bg);border-radius:10px;color:var(--success);font-weight:500">
@@ -1565,7 +1677,8 @@ async function startImport(){
 async function loadImportHistory(){
   const el = document.getElementById('imp-history');
   if(!el) return;
-  const{data} = await sb.from('campaigns').select('*').order('created_at',{ascending:false,nullsFirst:false});
+  const{data, error:histErr} = await sb.from('campaigns').select('*').order('created_at',{ascending:false,nullsFirst:false});
+  if(histErr){console.error('History error:',histErr.message);}
   if(!data||data.length===0){
     el.innerHTML='<div class="empty">No imports yet</div>';
     return;
